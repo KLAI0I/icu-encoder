@@ -1,0 +1,1144 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>ICU Encoding Dashboard (Local Stock Upload)</title>
+
+  <!-- Tailwind (CDN is fine for GitHub Pages) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- SheetJS for XLS/XLSX read & export -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.19.3/dist/xlsx.full.min.js"></script>
+
+  <style>
+    /* Keep the “sticker” vibe */
+    .chip { border-radius: 9999px; padding: .35rem .7rem; font-weight: 600; }
+    .chip-active { outline: 2px solid rgba(255,255,255,.35); }
+    .card { border-radius: 1rem; box-shadow: 0 10px 30px rgba(0,0,0,.25); }
+    .glass { background: rgba(255,255,255,.06); backdrop-filter: blur(10px); }
+    .scrollbar::-webkit-scrollbar { height: 10px; width: 10px; }
+    .scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,.15); border-radius: 999px; }
+  </style>
+</head>
+
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <!-- Header -->
+  <header class="sticky top-0 z-40 bg-slate-950/80 backdrop-blur border-b border-white/10">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3">
+      <div class="w-10 h-10 rounded-2xl bg-indigo-500/20 border border-indigo-400/30 grid place-items-center">
+        <span class="text-xl">🏥</span>
+      </div>
+      <div class="flex-1">
+        <div class="text-lg font-bold leading-tight">ICU Encoding Dashboard</div>
+        <div class="text-xs text-slate-300">Local stock upload • Auto-categorize • Editable categories • No Google Sheets</div>
+      </div>
+
+      <button id="btnUpload" class="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 font-semibold text-sm">
+        Upload Stock File
+      </button>
+
+      <button id="btnReset" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 font-semibold text-sm">
+        Reset
+      </button>
+    </div>
+
+    <!-- Tabs -->
+    <div class="max-w-7xl mx-auto px-4 pb-3">
+      <div class="flex flex-wrap gap-2">
+        <button class="tabBtn chip bg-slate-800 hover:bg-slate-700" data-tab="dashboard">📊 Dashboard</button>
+        <button class="tabBtn chip bg-slate-800 hover:bg-slate-700" data-tab="manage">🛠️ Reorganize</button>
+        <button class="tabBtn chip bg-slate-800 hover:bg-slate-700" data-tab="zero">⭕ Zero Stock</button>
+        <button class="tabBtn chip bg-slate-800 hover:bg-slate-700" data-tab="favorites">⭐ Favorites</button>
+        <button class="tabBtn chip bg-slate-800 hover:bg-slate-700" data-tab="clipboard">📋 Copy List</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main -->
+  <main class="max-w-7xl mx-auto px-4 py-5 space-y-4">
+
+    <!-- Empty state -->
+    <section id="emptyState" class="card glass border border-white/10 p-6 hidden">
+      <div class="flex items-start gap-4">
+        <div class="text-3xl">📦</div>
+        <div class="flex-1">
+          <div class="text-xl font-bold">Upload your stock file to start</div>
+          <div class="text-slate-300 mt-1">
+            This dashboard works entirely in the browser.
+            Upload your <b>.xls</b> or <b>.xlsx</b> stock file once, then you can:
+            auto-categorize, reorganize categories, move items, keep favorites, and export zero-stock.
+          </div>
+
+          <div class="mt-4 grid md:grid-cols-3 gap-3 text-sm">
+            <div class="p-3 rounded-xl bg-white/5 border border-white/10">
+              <div class="font-semibold">✅ Auto-categorize</div>
+              <div class="text-slate-300 mt-1">By item name + item code (editable later).</div>
+            </div>
+            <div class="p-3 rounded-xl bg-white/5 border border-white/10">
+              <div class="font-semibold">✅ Copy & Undo</div>
+              <div class="text-slate-300 mt-1">Copy deducts quantity (−1) and Undo restores.</div>
+            </div>
+            <div class="p-3 rounded-xl bg-white/5 border border-white/10">
+              <div class="font-semibold">✅ Export Zero Stock</div>
+              <div class="text-slate-300 mt-1">Separate window + Excel export.</div>
+            </div>
+          </div>
+
+          <div class="mt-5 flex flex-wrap gap-2">
+            <button id="btnUpload2" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 font-semibold">
+              Upload Stock File
+            </button>
+            <button id="btnLoadSample" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 font-semibold">
+              Load Demo Data
+            </button>
+          </div>
+
+          <div class="mt-3 text-xs text-slate-400">
+            Tip: if your XLS headers are not standard, this tool still tries to detect columns (Code / Name / Qty) automatically.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- DASHBOARD -->
+    <section id="tab-dashboard" class="tabPanel hidden space-y-4">
+      <!-- Controls -->
+      <div class="card glass border border-white/10 p-4">
+        <div class="flex flex-col lg:flex-row gap-3 lg:items-center">
+          <div class="flex-1">
+            <div class="text-sm text-slate-300 mb-1">Search (all items)</div>
+            <input id="searchAll" class="w-full px-3 py-2 rounded-xl bg-slate-900/70 border border-white/10 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                   placeholder="Search by code or name (e.g., syringe, gauze, 12345)"/>
+          </div>
+          <div class="flex gap-2">
+            <button id="btnExportJson" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 font-semibold text-sm">⬇️ Backup JSON</button>
+            <label class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 font-semibold text-sm cursor-pointer">
+              ⬆️ Restore JSON
+              <input id="jsonImport" type="file" accept=".json" class="hidden"/>
+            </label>
+          </div>
+        </div>
+
+        <!-- Category chips -->
+        <div class="mt-4 flex flex-wrap gap-2 scrollbar overflow-x-auto">
+          <button class="catChip chip bg-indigo-600/80 hover:bg-indigo-500" data-cat="__ALL__">🗂️ All</button>
+          <div id="catChips" class="flex flex-wrap gap-2"></div>
+        </div>
+      </div>
+
+      <!-- Items table -->
+      <div class="card glass border border-white/10 p-4">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div class="text-lg font-bold" id="dashTitle">All Items</div>
+            <div class="text-sm text-slate-300" id="dashSubtitle">0 items</div>
+          </div>
+          <div class="flex gap-2">
+            <button id="btnUndoCopy" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 font-semibold text-sm">↩️ Undo</button>
+            <button id="btnOpenClipboard" class="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 font-semibold text-sm">📋 Open Copy List</button>
+          </div>
+        </div>
+
+        <div class="mt-3 overflow-auto border border-white/10 rounded-xl">
+          <table class="w-full text-sm">
+            <thead class="bg-white/5 text-slate-200">
+              <tr>
+                <th class="text-left p-2">⭐</th>
+                <th class="text-left p-2">Code</th>
+                <th class="text-left p-2">Item</th>
+                <th class="text-left p-2">Category</th>
+                <th class="text-right p-2">Qty</th>
+                <th class="text-right p-2">Action</th>
+              </tr>
+            </thead>
+            <tbody id="itemsTbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- MANAGE / REORGANIZE -->
+    <section id="tab-manage" class="tabPanel hidden space-y-4">
+      <div class="grid lg:grid-cols-3 gap-4">
+        <!-- Category manager -->
+        <div class="card glass border border-white/10 p-4">
+          <div class="text-lg font-bold">🧩 Categories</div>
+          <div class="text-sm text-slate-300 mt-1">Rename, add, or delete categories.</div>
+
+          <div class="mt-3 flex gap-2">
+            <input id="newCatName" class="flex-1 px-3 py-2 rounded-xl bg-slate-900/70 border border-white/10 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                   placeholder="New category name"/>
+            <button id="btnAddCat" class="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 font-semibold">Add</button>
+          </div>
+
+          <div id="catList" class="mt-3 space-y-2 max-h-[60vh] overflow-auto scrollbar pr-1"></div>
+
+          <div class="mt-3 text-xs text-slate-400">
+            Deleting a category moves its items to <b>Uncategorized</b>.
+          </div>
+        </div>
+
+        <!-- Bulk move -->
+        <div class="lg:col-span-2 card glass border border-white/10 p-4">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div class="text-lg font-bold">🛠️ Reorganize Items</div>
+              <div class="text-sm text-slate-300 mt-1">Select items → choose a new category → Move.</div>
+            </div>
+            <div class="flex gap-2">
+              <button id="btnSelectAll" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 font-semibold text-sm">Select All</button>
+              <button id="btnClearSel" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 font-semibold text-sm">Clear</button>
+            </div>
+          </div>
+
+          <div class="mt-3 grid md:grid-cols-3 gap-2">
+            <input id="manageSearch" class="md:col-span-2 px-3 py-2 rounded-xl bg-slate-900/70 border border-white/10 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                   placeholder="Search items to move (code/name)"/>
+            <select id="moveTargetCat" class="px-3 py-2 rounded-xl bg-slate-900/70 border border-white/10 focus:outline-none focus:ring-2 focus:ring-indigo-500"></select>
+          </div>
+
+          <div class="mt-2 flex gap-2">
+            <button id="btnMoveSelected" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 font-semibold">Move Selected</button>
+            <span id="moveStatus" class="text-sm text-slate-300 self-center"></span>
+          </div>
+
+          <div class="mt-3 overflow-auto border border-white/10 rounded-xl max-h-[62vh]">
+            <table class="w-full text-sm">
+              <thead class="bg-white/5 text-slate-200 sticky top-0">
+                <tr>
+                  <th class="p-2 w-10"></th>
+                  <th class="text-left p-2">Code</th>
+                  <th class="text-left p-2">Item</th>
+                  <th class="text-left p-2">Current Category</th>
+                  <th class="text-right p-2">Qty</th>
+                </tr>
+              </thead>
+              <tbody id="manageTbody"></tbody>
+            </table>
+          </div>
+
+          <div class="mt-3 text-xs text-slate-400">
+            After moving, categories update immediately in the Dashboard.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ZERO STOCK -->
+    <section id="tab-zero" class="tabPanel hidden space-y-4">
+      <div class="card glass border border-white/10 p-4">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div class="text-lg font-bold">⭕ Zero Stock</div>
+            <div class="text-sm text-slate-300 mt-1">Items where quantity = 0</div>
+          </div>
+          <div class="flex gap-2">
+            <button id="btnExportZeroXlsx" class="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 font-semibold text-sm">⬇️ Export Excel</button>
+          </div>
+        </div>
+
+        <div class="mt-3 overflow-auto border border-white/10 rounded-xl">
+          <table class="w-full text-sm">
+            <thead class="bg-white/5 text-slate-200">
+              <tr>
+                <th class="text-left p-2">Code</th>
+                <th class="text-left p-2">Item</th>
+                <th class="text-left p-2">Category</th>
+                <th class="text-right p-2">Qty</th>
+              </tr>
+            </thead>
+            <tbody id="zeroTbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- FAVORITES -->
+    <section id="tab-favorites" class="tabPanel hidden space-y-4">
+      <div class="card glass border border-white/10 p-4">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div class="text-lg font-bold">⭐ Favorites</div>
+            <div class="text-sm text-slate-300 mt-1">Quick access to your favorite items</div>
+          </div>
+          <button id="btnExportFavXlsx" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 font-semibold text-sm">⬇️ Export Excel</button>
+        </div>
+
+        <div class="mt-3 overflow-auto border border-white/10 rounded-xl">
+          <table class="w-full text-sm">
+            <thead class="bg-white/5 text-slate-200">
+              <tr>
+                <th class="text-left p-2">Code</th>
+                <th class="text-left p-2">Item</th>
+                <th class="text-left p-2">Category</th>
+                <th class="text-right p-2">Qty</th>
+                <th class="text-right p-2">Action</th>
+              </tr>
+            </thead>
+            <tbody id="favTbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- CLIPBOARD / COPY LIST -->
+    <section id="tab-clipboard" class="tabPanel hidden space-y-4">
+      <div class="card glass border border-white/10 p-4">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div class="text-lg font-bold">📋 Copy List</div>
+            <div class="text-sm text-slate-300 mt-1">Copied items (Copy deducts from stock). Export if needed.</div>
+          </div>
+          <div class="flex gap-2">
+            <button id="btnExportClipboardXlsx" class="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 font-semibold text-sm">⬇️ Export Excel</button>
+            <button id="btnClearClipboard" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 font-semibold text-sm">🧹 Clear</button>
+          </div>
+        </div>
+
+        <div class="mt-3 overflow-auto border border-white/10 rounded-xl">
+          <table class="w-full text-sm">
+            <thead class="bg-white/5 text-slate-200">
+              <tr>
+                <th class="text-left p-2">Code</th>
+                <th class="text-left p-2">Item</th>
+                <th class="text-left p-2">Category</th>
+                <th class="text-right p-2">Qty Copied</th>
+                <th class="text-right p-2">Action</th>
+              </tr>
+            </thead>
+            <tbody id="clipTbody"></tbody>
+          </table>
+        </div>
+
+        <div class="mt-3 flex flex-wrap gap-2 items-center">
+          <button id="btnUndoFromClipboard" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 font-semibold text-sm">↩️ Undo Last Copy</button>
+          <span id="undoStatus" class="text-sm text-slate-300"></span>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="mt-10 border-t border-white/10 bg-slate-950/70 backdrop-blur">
+    <div class="max-w-7xl mx-auto px-4 py-4 text-center text-sm text-slate-300">
+      Designed by Mr.Mohamed Ali Ghonim – ICU Head Nurse
+    </div>
+  </footer>
+
+  <!-- Hidden file input -->
+  <input id="fileInput" type="file" accept=".xls,.xlsx" class="hidden"/>
+
+  <script>
+    /********************
+     * Local-only State *
+     ********************/
+    const LS_KEY = "icu_encoding_local_stock_v1";
+
+    const state = {
+      items: [],         // {id, code, name, qty, category, fav}
+      categories: [],    // ["Consumables", ...]
+      clipboard: [],     // {id, code, name, category, qtyCopied}
+      history: [],       // stack for undo: {type:"copy", id, delta}
+      activeTab: "dashboard",
+      activeCategory: "__ALL__",
+      search: "",
+      manageSearch: ""
+    };
+
+    // Emoji “stickers” for categories (auto assigned + editable by renaming with emoji if you want)
+    const CATEGORY_STICKERS = {
+      "Syringes & Needles": "💉",
+      "IV Cannula & Lines": "🩸",
+      "Dressing & Gauze": "🩹",
+      "Gloves & PPE": "🧤",
+      "Airway & Respiratory": "🫁",
+      "Catheters & Urine": "🚽",
+      "Labs & Sampling": "🧪",
+      "Medications": "💊",
+      "Disinfection": "🧼",
+      "Stationery": "🗂️",
+      "Uncategorized": "🏷️"
+    };
+
+    // Keyword-based auto categorization (name+code). You can expand anytime.
+    const AUTO_RULES = [
+      { cat: "Syringes & Needles", kw: ["syringe","needle","insulin","bd ","bd-","luer","hypodermic","scalp vein","butterfly"] },
+      { cat: "IV Cannula & Lines", kw: ["cannula","iv","venflon","extension","stopcock","3-way","3 way","infusion","set","macrodrip","microdrip","y-site","y site","connector"] },
+      { cat: "Dressing & Gauze", kw: ["gauze","dressing","bandage","tape","micropore","tegaderm","opsit","cotton","swab","pad","plaster"] },
+      { cat: "Gloves & PPE", kw: ["glove","mask","n95","gown","cap","shoe cover","face shield","ppe"] },
+      { cat: "Airway & Respiratory", kw: ["ett","endotracheal","tube","hme","catheter mount","neb","nebulizer","oxygen","nasal","mask venturi","bvm","ambu","laryngeal","trach","tracheostomy","suction","yankauer","circuit","filter"] },
+      { cat: "Catheters & Urine", kw: ["foley","catheter","urine","urobag","u-bag","urinometer","suprapubic"] },
+      { cat: "Labs & Sampling", kw: ["vacutainer","tube edta","edta","citrate","serum","culture","swab","specimen","needle vacutainer","lancet"] },
+      { cat: "Medications", kw: ["amp","vial","tab","capsule","mg","ml","insulin","heparin","saline","dextrose","adrenaline","noradrenaline","dopamine","midazolam","propofol"] },
+      { cat: "Disinfection", kw: ["alcohol","chlorhex","betadine","iodine","disinfect","sanit","glutar","bleach"] },
+      { cat: "Stationery", kw: ["paper","label","marker","pen","file","clip","sticker"] },
+    ];
+
+    /********************
+     * Utilities
+     ********************/
+    function uid() { return "i_" + Math.random().toString(16).slice(2) + "_" + Date.now().toString(16); }
+    function clampQty(n) { n = Number(n); if (!isFinite(n)) return 0; return Math.max(0, Math.round(n)); }
+
+    function stickerFor(cat) {
+      return CATEGORY_STICKERS[cat] || "🏷️";
+    }
+
+    function saveState() {
+      const toSave = {
+        items: state.items,
+        categories: state.categories,
+        clipboard: state.clipboard,
+        history: state.history
+      };
+      localStorage.setItem(LS_KEY, JSON.stringify(toSave));
+    }
+
+    function loadState() {
+      try {
+        const raw = localStorage.getItem(LS_KEY);
+        if (!raw) return false;
+        const obj = JSON.parse(raw);
+        if (!obj || !Array.isArray(obj.items)) return false;
+        state.items = obj.items;
+        state.categories = Array.isArray(obj.categories) ? obj.categories : [];
+        state.clipboard = Array.isArray(obj.clipboard) ? obj.clipboard : [];
+        state.history = Array.isArray(obj.history) ? obj.history : [];
+        normalizeCategories();
+        return true;
+      } catch (e) { return false; }
+    }
+
+    function resetAll() {
+      if (!confirm("Reset everything? This will clear the uploaded stock, categories, favorites, and copy list.")) return;
+      localStorage.removeItem(LS_KEY);
+      state.items = [];
+      state.categories = [];
+      state.clipboard = [];
+      state.history = [];
+      state.activeCategory = "__ALL__";
+      state.search = "";
+      state.manageSearch = "";
+      renderAll();
+      showEmptyIfNeeded();
+    }
+
+    function downloadBlob(filename, blob) {
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+    }
+
+    function exportXlsx(rows, filename) {
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
+      XLSX.writeFile(wb, filename);
+    }
+
+    function normalizeCategories() {
+      // Ensure required categories exist
+      if (!state.categories.includes("Uncategorized")) state.categories.unshift("Uncategorized");
+      // Add any categories referenced by items
+      const used = new Set(state.items.map(i => i.category || "Uncategorized"));
+      for (const c of used) if (!state.categories.includes(c)) state.categories.push(c);
+      // Remove empties / duplicates
+      state.categories = Array.from(new Set(state.categories.filter(Boolean)));
+    }
+
+    function categorizeItem(name, code) {
+      const s = ((name || "") + " " + (code || "")).toLowerCase();
+      for (const r of AUTO_RULES) {
+        if (r.kw.some(k => s.includes(k))) return r.cat;
+      }
+      return "Uncategorized";
+    }
+
+    function detectColumns(headerRow) {
+      // headerRow is array of strings
+      const norm = headerRow.map(h => String(h || "").trim().toLowerCase());
+      const idx = (patterns) => {
+        for (let i=0;i<norm.length;i++) {
+          const h = norm[i];
+          if (patterns.some(p => h === p || h.includes(p))) return i;
+        }
+        return -1;
+      };
+
+      const codeIdx = idx(["code","item code","itemcode","barcode","sku"]);
+      const nameIdx = idx(["name","item","item name","description","product","product name"]);
+      const qtyIdx  = idx(["qty","quantity","balance","stock","on hand","available"]);
+
+      return { codeIdx, nameIdx, qtyIdx };
+    }
+
+    /********************
+     * Import XLS/XLSX
+     ********************/
+    async function importExcelFile(file) {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: "array" });
+
+      // Use first sheet
+      const firstSheetName = wb.SheetNames[0];
+      const ws = wb.Sheets[firstSheetName];
+
+      // Read as array-of-arrays to detect headers
+      const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: "" });
+      if (!aoa || aoa.length < 2) throw new Error("The sheet looks empty.");
+
+      // Find header row (first non-empty row)
+      let headerRowIndex = 0;
+      for (let r=0;r<aoa.length;r++) {
+        const row = aoa[r];
+        const nonEmpty = row.some(v => String(v).trim() !== "");
+        if (nonEmpty) { headerRowIndex = r; break; }
+      }
+
+      const headers = aoa[headerRowIndex].map(v => String(v || "").trim());
+      const {codeIdx, nameIdx, qtyIdx} = detectColumns(headers);
+
+      // If not detected, fallback to common positions
+      const fallback = { codeIdx: codeIdx>=0?codeIdx:0, nameIdx: nameIdx>=0?nameIdx:1, qtyIdx: qtyIdx>=0?qtyIdx:2 };
+
+      const newItems = [];
+      for (let r = headerRowIndex + 1; r < aoa.length; r++) {
+        const row = aoa[r];
+        if (!row || row.every(v => String(v).trim() === "")) continue;
+
+        const code = String(row[fallback.codeIdx] ?? "").trim();
+        const name = String(row[fallback.nameIdx] ?? "").trim();
+        const qty  = clampQty(row[fallback.qtyIdx] ?? 0);
+
+        // Skip rows with no meaningful item name+code
+        if (!code && !name) continue;
+
+        const cat = categorizeItem(name, code);
+        newItems.push({
+          id: uid(),
+          code,
+          name,
+          qty,
+          category: cat,
+          fav: false
+        });
+      }
+
+      state.items = newItems;
+      normalizeCategories();
+      state.clipboard = [];
+      state.history = [];
+      saveState();
+      renderAll();
+      showEmptyIfNeeded();
+    }
+
+    function loadDemo() {
+      const demo = [
+        {code:"IV-001", name:"IV Cannula 18G", qty:12},
+        {code:"SY-010", name:"Syringe 10 ml Luer Lock", qty:0},
+        {code:"GA-004", name:"Sterile Gauze 10x10", qty:55},
+        {code:"PP-002", name:"N95 Mask", qty:8},
+        {code:"AI-003", name:"Endotracheal Tube 7.5", qty:3},
+        {code:"UR-009", name:"Foley Catheter 16Fr", qty:0},
+      ];
+      state.items = demo.map(d => ({
+        id: uid(),
+        code: d.code,
+        name: d.name,
+        qty: clampQty(d.qty),
+        category: categorizeItem(d.name, d.code),
+        fav: false
+      }));
+      normalizeCategories();
+      state.clipboard = [];
+      state.history = [];
+      saveState();
+      renderAll();
+      showEmptyIfNeeded();
+    }
+
+    /********************
+     * Actions
+     ********************/
+    function toggleFav(id) {
+      const it = state.items.find(x => x.id === id);
+      if (!it) return;
+      it.fav = !it.fav;
+      saveState();
+      renderAll();
+    }
+
+    function doCopyOne(id) {
+      const it = state.items.find(x => x.id === id);
+      if (!it) return;
+
+      if (it.qty <= 0) {
+        alert("This item is already 0 stock.");
+        return;
+      }
+
+      // Deduct
+      it.qty = clampQty(it.qty - 1);
+
+      // Add/update clipboard
+      const existing = state.clipboard.find(x => x.id === id);
+      if (existing) existing.qtyCopied += 1;
+      else state.clipboard.push({ id: it.id, code: it.code, name: it.name, category: it.category, qtyCopied: 1 });
+
+      // History for undo
+      state.history.push({ type: "copy", id: it.id, delta: 1, ts: Date.now() });
+
+      saveState();
+      renderAll();
+      flashUndo("Copied ✅ (qty -1)");
+    }
+
+    function undoLastCopy() {
+      // Find last copy action
+      let lastIdx = -1;
+      for (let i = state.history.length - 1; i >= 0; i--) {
+        if (state.history[i].type === "copy") { lastIdx = i; break; }
+      }
+      if (lastIdx === -1) {
+        flashUndo("Nothing to undo.");
+        return;
+      }
+
+      const act = state.history.splice(lastIdx, 1)[0];
+      const it = state.items.find(x => x.id === act.id);
+      if (it) it.qty = clampQty(it.qty + act.delta);
+
+      const clip = state.clipboard.find(x => x.id === act.id);
+      if (clip) {
+        clip.qtyCopied -= act.delta;
+        if (clip.qtyCopied <= 0) state.clipboard = state.clipboard.filter(x => x.id !== act.id);
+      }
+
+      saveState();
+      renderAll();
+      flashUndo("Undo ✅ (qty +1)");
+    }
+
+    function removeClipItem(id) {
+      // Removing from clipboard does NOT restore stock (because it represents already deducted copies).
+      state.clipboard = state.clipboard.filter(x => x.id !== id);
+      saveState();
+      renderAll();
+    }
+
+    function clearClipboard() {
+      if (!confirm("Clear the copy list? (Stock quantities will remain as currently deducted.)")) return;
+      state.clipboard = [];
+      saveState();
+      renderAll();
+    }
+
+    function addCategory(name) {
+      name = (name || "").trim();
+      if (!name) return;
+      if (state.categories.includes(name)) return alert("Category already exists.");
+      state.categories.push(name);
+      saveState();
+      renderAll();
+    }
+
+    function renameCategory(oldName, newName) {
+      newName = (newName || "").trim();
+      if (!newName) return;
+      if (oldName === newName) return;
+      if (state.categories.includes(newName)) return alert("This category name already exists.");
+
+      // Update list
+      state.categories = state.categories.map(c => c === oldName ? newName : c);
+
+      // Update items
+      for (const it of state.items) {
+        if (it.category === oldName) it.category = newName;
+      }
+
+      // Update clipboard display category (optional)
+      for (const c of state.clipboard) {
+        if (c.category === oldName) c.category = newName;
+      }
+
+      if (state.activeCategory === oldName) state.activeCategory = newName;
+
+      saveState();
+      renderAll();
+    }
+
+    function deleteCategory(cat) {
+      if (cat === "Uncategorized") return alert("Uncategorized cannot be deleted.");
+      if (!confirm(`Delete category "${cat}"? Items will move to "Uncategorized".`)) return;
+
+      state.categories = state.categories.filter(c => c !== cat);
+      for (const it of state.items) {
+        if (it.category === cat) it.category = "Uncategorized";
+      }
+      for (const c of state.clipboard) {
+        if (c.category === cat) c.category = "Uncategorized";
+      }
+      if (state.activeCategory === cat) state.activeCategory = "__ALL__";
+
+      saveState();
+      renderAll();
+    }
+
+    function moveSelectedItems(targetCat, selectedIds) {
+      if (!targetCat) return;
+      if (!Array.isArray(selectedIds) || selectedIds.length === 0) return;
+
+      for (const id of selectedIds) {
+        const it = state.items.find(x => x.id === id);
+        if (it) it.category = targetCat;
+      }
+      if (!state.categories.includes(targetCat)) state.categories.push(targetCat);
+
+      saveState();
+      renderAll();
+      const el = document.getElementById("moveStatus");
+      el.textContent = `Moved ${selectedIds.length} item(s) ✅`;
+      setTimeout(() => el.textContent = "", 2500);
+    }
+
+    /********************
+     * Rendering
+     ********************/
+    function setTab(tab) {
+      state.activeTab = tab;
+      document.querySelectorAll(".tabPanel").forEach(p => p.classList.add("hidden"));
+      document.getElementById("tab-" + tab).classList.remove("hidden");
+
+      document.querySelectorAll(".tabBtn").forEach(b => {
+        b.classList.remove("bg-indigo-600/80","chip-active");
+        b.classList.add("bg-slate-800");
+        if (b.dataset.tab === tab) {
+          b.classList.remove("bg-slate-800");
+          b.classList.add("bg-indigo-600/80","chip-active");
+        }
+      });
+
+      renderAll();
+    }
+
+    function showEmptyIfNeeded() {
+      const empty = state.items.length === 0;
+      document.getElementById("emptyState").classList.toggle("hidden", !empty);
+      document.querySelectorAll(".tabPanel").forEach(p => p.classList.toggle("hidden", empty));
+      if (empty) return;
+
+      // Ensure at least one tab visible
+      setTab(state.activeTab || "dashboard");
+    }
+
+    function renderCategoryChips() {
+      const wrap = document.getElementById("catChips");
+      wrap.innerHTML = "";
+
+      for (const cat of state.categories) {
+        const btn = document.createElement("button");
+        btn.className = "catChip chip bg-slate-800 hover:bg-slate-700";
+        btn.dataset.cat = cat;
+        btn.textContent = `${stickerFor(cat)} ${cat}`;
+        if (state.activeCategory === cat) btn.classList.add("chip-active","bg-indigo-600/60");
+        btn.onclick = () => { state.activeCategory = cat; renderAll(); };
+        wrap.appendChild(btn);
+      }
+
+      // Activate All chip style
+      document.querySelectorAll(".catChip").forEach(b => {
+        if (b.dataset.cat === "__ALL__") {
+          b.classList.toggle("chip-active", state.activeCategory === "__ALL__");
+          b.classList.toggle("bg-indigo-600/80", state.activeCategory === "__ALL__");
+          b.classList.toggle("bg-slate-800", state.activeCategory !== "__ALL__");
+        }
+      });
+    }
+
+    function filteredItemsForDashboard() {
+      const q = (state.search || "").trim().toLowerCase();
+      const byCat = state.activeCategory;
+
+      return state.items.filter(it => {
+        if (byCat !== "__ALL__" && it.category !== byCat) return false;
+        if (!q) return true;
+        const hay = ((it.code || "") + " " + (it.name || "") + " " + (it.category || "")).toLowerCase();
+        return hay.includes(q);
+      });
+    }
+
+    function renderDashboard() {
+      renderCategoryChips();
+
+      const list = filteredItemsForDashboard();
+      document.getElementById("dashTitle").textContent = (state.activeCategory === "__ALL__") ? "All Items" : `${stickerFor(state.activeCategory)} ${state.activeCategory}`;
+      document.getElementById("dashSubtitle").textContent = `${list.length} item(s)`;
+
+      const tb = document.getElementById("itemsTbody");
+      tb.innerHTML = "";
+
+      // Sort: favorites first, then qty asc? keep natural: fav first then name
+      list.sort((a,b) => (b.fav===true)-(a.fav===true) || (a.name||"").localeCompare(b.name||""));
+
+      for (const it of list) {
+        const tr = document.createElement("tr");
+        tr.className = "border-t border-white/5 hover:bg-white/5";
+
+        const favTd = document.createElement("td");
+        favTd.className = "p-2";
+        favTd.innerHTML = `<button class="text-lg" title="Favorite">${it.fav ? "⭐" : "☆"}</button>`;
+        favTd.querySelector("button").onclick = () => toggleFav(it.id);
+
+        const codeTd = document.createElement("td");
+        codeTd.className = "p-2 text-slate-200 font-mono";
+        codeTd.textContent = it.code || "";
+
+        const nameTd = document.createElement("td");
+        nameTd.className = "p-2";
+        nameTd.textContent = it.name || "";
+
+        const catTd = document.createElement("td");
+        catTd.className = "p-2 text-slate-300";
+        catTd.textContent = `${stickerFor(it.category)} ${it.category}`;
+
+        const qtyTd = document.createElement("td");
+        qtyTd.className = "p-2 text-right font-bold";
+        qtyTd.textContent = String(it.qty);
+
+        const actTd = document.createElement("td");
+        actTd.className = "p-2 text-right";
+        actTd.innerHTML = `
+          <button class="px-3 py-1.5 rounded-xl font-semibold ${it.qty>0 ? "bg-indigo-600 hover:bg-indigo-500" : "bg-slate-700 cursor-not-allowed"}">
+            Copy (-1)
+          </button>
+        `;
+        const btn = actTd.querySelector("button");
+        btn.disabled = it.qty <= 0;
+        btn.onclick = () => doCopyOne(it.id);
+
+        tr.appendChild(favTd);
+        tr.appendChild(codeTd);
+        tr.appendChild(nameTd);
+        tr.appendChild(catTd);
+        tr.appendChild(qtyTd);
+        tr.appendChild(actTd);
+
+        tb.appendChild(tr);
+      }
+    }
+
+    function renderManage() {
+      // Category dropdown for move
+      const sel = document.getElementById("moveTargetCat");
+      sel.innerHTML = "";
+      for (const cat of state.categories) {
+        const opt = document.createElement("option");
+        opt.value = cat;
+        opt.textContent = `${stickerFor(cat)} ${cat}`;
+        sel.appendChild(opt);
+      }
+
+      // Category list manager
+      const list = document.getElementById("catList");
+      list.innerHTML = "";
+
+      for (const cat of state.categories) {
+        const row = document.createElement("div");
+        row.className = "p-2 rounded-xl bg-white/5 border border-white/10 flex items-center gap-2";
+
+        row.innerHTML = `
+          <div class="w-8 h-8 rounded-xl bg-slate-900/60 border border-white/10 grid place-items-center">${stickerFor(cat)}</div>
+          <input class="flex-1 px-2 py-1 rounded-lg bg-slate-900/60 border border-white/10 focus:outline-none focus:ring-2 focus:ring-indigo-500" value="${escapeHtml(cat)}"/>
+          <button class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm font-semibold">Save</button>
+          <button class="px-2 py-1 rounded-lg bg-rose-600/70 hover:bg-rose-600 text-sm font-semibold ${cat==="Uncategorized" ? "opacity-40 cursor-not-allowed" : ""}">Delete</button>
+        `;
+
+        const inp = row.querySelector("input");
+        const saveBtn = row.querySelectorAll("button")[0];
+        const delBtn = row.querySelectorAll("button")[1];
+
+        saveBtn.onclick = () => renameCategory(cat, inp.value);
+        delBtn.onclick = () => { if (cat !== "Uncategorized") deleteCategory(cat); };
+
+        list.appendChild(row);
+      }
+
+      // Items list with checkboxes
+      const q = (state.manageSearch || "").trim().toLowerCase();
+      const tbody = document.getElementById("manageTbody");
+      tbody.innerHTML = "";
+
+      const items = state.items
+        .filter(it => {
+          if (!q) return true;
+          const hay = ((it.code||"") + " " + (it.name||"") + " " + (it.category||"")).toLowerCase();
+          return hay.includes(q);
+        })
+        .sort((a,b) => (a.category||"").localeCompare(b.category||"") || (a.name||"").localeCompare(b.name||""));
+
+      for (const it of items) {
+        const tr = document.createElement("tr");
+        tr.className = "border-t border-white/5 hover:bg-white/5";
+
+        tr.innerHTML = `
+          <td class="p-2"><input type="checkbox" class="selBox w-4 h-4 accent-indigo-500" data-id="${it.id}"></td>
+          <td class="p-2 font-mono">${escapeHtml(it.code||"")}</td>
+          <td class="p-2">${escapeHtml(it.name||"")}</td>
+          <td class="p-2 text-slate-300">${escapeHtml(stickerFor(it.category) + " " + it.category)}</td>
+          <td class="p-2 text-right font-bold">${it.qty}</td>
+        `;
+        tbody.appendChild(tr);
+      }
+    }
+
+    function renderZeroStock() {
+      const tbody = document.getElementById("zeroTbody");
+      tbody.innerHTML = "";
+      const zeros = state.items.filter(it => Number(it.qty) === 0)
+        .sort((a,b) => (a.category||"").localeCompare(b.category||"") || (a.name||"").localeCompare(b.name||""));
+
+      for (const it of zeros) {
+        const tr = document.createElement("tr");
+        tr.className = "border-t border-white/5";
+        tr.innerHTML = `
+          <td class="p-2 font-mono">${escapeHtml(it.code||"")}</td>
+          <td class="p-2">${escapeHtml(it.name||"")}</td>
+          <td class="p-2 text-slate-300">${escapeHtml(stickerFor(it.category) + " " + it.category)}</td>
+          <td class="p-2 text-right font-bold">0</td>
+        `;
+        tbody.appendChild(tr);
+      }
+    }
+
+    function renderFavorites() {
+      const tbody = document.getElementById("favTbody");
+      tbody.innerHTML = "";
+      const favs = state.items.filter(it => it.fav)
+        .sort((a,b) => (a.category||"").localeCompare(b.category||"") || (a.name||"").localeCompare(b.name||""));
+
+      for (const it of favs) {
+        const tr = document.createElement("tr");
+        tr.className = "border-t border-white/5 hover:bg-white/5";
+        tr.innerHTML = `
+          <td class="p-2 font-mono">${escapeHtml(it.code||"")}</td>
+          <td class="p-2">${escapeHtml(it.name||"")}</td>
+          <td class="p-2 text-slate-300">${escapeHtml(stickerFor(it.category) + " " + it.category)}</td>
+          <td class="p-2 text-right font-bold">${it.qty}</td>
+          <td class="p-2 text-right">
+            <button class="px-3 py-1.5 rounded-xl font-semibold ${it.qty>0 ? "bg-indigo-600 hover:bg-indigo-500" : "bg-slate-700 cursor-not-allowed"}">Copy (-1)</button>
+          </td>
+        `;
+        const btn = tr.querySelector("button");
+        btn.disabled = it.qty <= 0;
+        btn.onclick = () => doCopyOne(it.id);
+        tbody.appendChild(tr);
+      }
+    }
+
+    function renderClipboard() {
+      const tbody = document.getElementById("clipTbody");
+      tbody.innerHTML = "";
+
+      const list = state.clipboard.slice().sort((a,b) => (a.category||"").localeCompare(b.category||"") || (a.name||"").localeCompare(b.name||""));
+
+      for (const c of list) {
+        const tr = document.createElement("tr");
+        tr.className = "border-t border-white/5 hover:bg-white/5";
+        tr.innerHTML = `
+          <td class="p-2 font-mono">${escapeHtml(c.code||"")}</td>
+          <td class="p-2">${escapeHtml(c.name||"")}</td>
+          <td class="p-2 text-slate-300">${escapeHtml(stickerFor(c.category) + " " + c.category)}</td>
+          <td class="p-2 text-right font-bold">${c.qtyCopied}</td>
+          <td class="p-2 text-right">
+            <button class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 font-semibold">Remove</button>
+          </td>
+        `;
+        tr.querySelector("button").onclick = () => removeClipItem(c.id);
+        tbody.appendChild(tr);
+      }
+    }
+
+    function renderAll() {
+      if (state.items.length === 0) return;
+
+      if (state.activeTab === "dashboard") renderDashboard();
+      if (state.activeTab === "manage") renderManage();
+      if (state.activeTab === "zero") renderZeroStock();
+      if (state.activeTab === "favorites") renderFavorites();
+      if (state.activeTab === "clipboard") renderClipboard();
+
+      // Keep inputs synced
+      document.getElementById("searchAll").value = state.search || "";
+      document.getElementById("manageSearch").value = state.manageSearch || "";
+    }
+
+    function escapeHtml(s) {
+      return String(s||"")
+        .replaceAll("&","&amp;")
+        .replaceAll("<","&lt;")
+        .replaceAll(">","&gt;")
+        .replaceAll('"',"&quot;")
+        .replaceAll("'","&#039;");
+    }
+
+    function flashUndo(msg) {
+      const a = document.getElementById("undoStatus");
+      const b = document.getElementById("dashSubtitle");
+      a.textContent = msg;
+      setTimeout(() => a.textContent = "", 2200);
+      // quick subtle update in dashboard subtitle too
+      b.textContent = b.textContent;
+    }
+
+    /********************
+     * Export helpers
+     ********************/
+    function exportZeroToXlsx() {
+      const zeros = state.items.filter(it => Number(it.qty) === 0)
+        .map(it => ({ Code: it.code, Item: it.name, Category: it.category, Qty: it.qty }));
+      exportXlsx(zeros.length ? zeros : [{Code:"",Item:"",Category:"",Qty:""}], "zero_stock.xlsx");
+    }
+
+    function exportFavToXlsx() {
+      const favs = state.items.filter(it => it.fav)
+        .map(it => ({ Code: it.code, Item: it.name, Category: it.category, Qty: it.qty }));
+      exportXlsx(favs.length ? favs : [{Code:"",Item:"",Category:"",Qty:""}], "favorites.xlsx");
+    }
+
+    function exportClipboardToXlsx() {
+      const rows = state.clipboard.map(c => ({ Code: c.code, Item: c.name, Category: c.category, QtyCopied: c.qtyCopied }));
+      exportXlsx(rows.length ? rows : [{Code:"",Item:"",Category:"",QtyCopied:""}], "copy_list.xlsx");
+    }
+
+    function exportBackupJson() {
+      const blob = new Blob([JSON.stringify({
+        exportedAt: new Date().toISOString(),
+        items: state.items,
+        categories: state.categories,
+        clipboard: state.clipboard,
+        history: state.history
+      }, null, 2)], {type:"application/json"});
+      downloadBlob("icu_encoding_backup.json", blob);
+    }
+
+    async function restoreBackupJson(file) {
+      const text = await file.text();
+      const obj = JSON.parse(text);
+      if (!obj || !Array.isArray(obj.items)) throw new Error("Invalid JSON backup.");
+      state.items = obj.items;
+      state.categories = Array.isArray(obj.categories) ? obj.categories : [];
+      state.clipboard = Array.isArray(obj.clipboard) ? obj.clipboard : [];
+      state.history = Array.isArray(obj.history) ? obj.history : [];
+      normalizeCategories();
+      saveState();
+      renderAll();
+      showEmptyIfNeeded();
+    }
+
+    /********************
+     * Wire events
+     ********************/
+    function wire() {
+      const fileInput = document.getElementById("fileInput");
+
+      const openFile = () => fileInput.click();
+      document.getElementById("btnUpload").onclick = openFile;
+      document.getElementById("btnUpload2").onclick = openFile;
+
+      fileInput.addEventListener("change", async (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        try {
+          await importExcelFile(file);
+          alert("Stock uploaded and categorized ✅");
+        } catch (err) {
+          console.error(err);
+          alert("Upload failed: " + (err && err.message ? err.message : String(err)));
+        } finally {
+          fileInput.value = "";
+        }
+      });
+
+      document.getElementById("btnReset").onclick = resetAll;
+      document.getElementById("btnLoadSample").onclick = loadDemo;
+
+      document.querySelectorAll(".tabBtn").forEach(b => {
+        b.onclick = () => setTab(b.dataset.tab);
+      });
+
+      document.getElementById("searchAll").addEventListener("input", (e) => {
+        state.search = e.target.value || "";
+        renderAll();
+      });
+
+      document.getElementById("manageSearch").addEventListener("input", (e) => {
+        state.manageSearch = e.target.value || "";
+        renderAll();
+      });
+
+      document.getElementById("btnAddCat").onclick = () => {
+        addCategory(document.getElementById("newCatName").value);
+        document.getElementById("newCatName").value = "";
+      };
+
+      document.getElementById("btnSelectAll").onclick = () => {
+        document.querySelectorAll("#manageTbody .selBox").forEach(cb => cb.checked = true);
+      };
+      document.getElementById("btnClearSel").onclick = () => {
+        document.querySelectorAll("#manageTbody .selBox").forEach(cb => cb.checked = false);
+      };
+
+      document.getElementById("btnMoveSelected").onclick = () => {
+        const targetCat = document.getElementById("moveTargetCat").value;
+        const selected = Array.from(document.querySelectorAll("#manageTbody .selBox"))
+          .filter(cb => cb.checked)
+          .map(cb => cb.dataset.id);
+        moveSelectedItems(targetCat, selected);
+      };
+
+      document.getElementById("btnOpenClipboard").onclick = () => setTab("clipboard");
+      document.getElementById("btnUndoCopy").onclick = undoLastCopy;
+      document.getElementById("btnUndoFromClipboard").onclick = undoLastCopy;
+      document.getElementById("btnClearClipboard").onclick = clearClipboard;
+
+      document.getElementById("btnExportZeroXlsx").onclick = exportZeroToXlsx;
+      document.getElementById("btnExportFavXlsx").onclick = exportFavToXlsx;
+      document.getElementById("btnExportClipboardXlsx").onclick = exportClipboardToXlsx;
+
+      document.getElementById("btnExportJson").onclick = exportBackupJson;
+      document.getElementById("jsonImport").addEventListener("change", async (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        try {
+          await restoreBackupJson(file);
+          alert("Backup restored ✅");
+        } catch (err) {
+          alert("Restore failed: " + (err && err.message ? err.message : String(err)));
+        } finally {
+          e.target.value = "";
+        }
+      });
+    }
+
+    /********************
+     * Init
+     ********************/
+    (function init() {
+      wire();
+      const ok = loadState();
+      if (!ok) {
+        state.activeTab = "dashboard";
+        state.activeCategory = "__ALL__";
+      }
+      showEmptyIfNeeded();
+      if (state.items.length > 0) setTab("dashboard");
+    })();
+  </script>
+</body>
+</html>
