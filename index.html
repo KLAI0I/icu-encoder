@@ -842,18 +842,25 @@ bg-[radial-gradient(1200px_600px_at_10%_-10%,rgba(59,130,246,0.30),transparent_6
     const it = items.find(x => itemKey(x) === itemKeyStr);
     if(!it) return;
 
+    const oldCat = String(it.category || "Uncategorized");
     it.category = String(newCategory || "Uncategorized").trim() || "Uncategorized";
     persistState();
+
+    // If user is currently filtering by the old category, switch to the new one
+    if(selectedCategory === oldCat) selectedCategory = it.category;
 
     // keep selected category valid
     ensureCategorySelected(false);
     renderCategoryBar();
     renderMain();
     renderZeroStock();
-    if(!document.getElementById("orgModal").classList.contains("hidden")) renderOrganizer();
+    if(!document.getElementById("orgModal").classList.contains("hidden")){
+      renderOrganizer();
+      showOrgSaved();
+    }
 
-    showSavedBadge(badgeId);
-    toast("Category saved");
+    if(badgeId) showSavedBadge(badgeId);
+    toast("Saved ✅");
   }
 
   function showSavedBadge(badgeId){
@@ -985,7 +992,7 @@ bg-[radial-gradient(1200px_600px_at_10%_-10%,rgba(59,130,246,0.30),transparent_6
   // =========================================
   // COPY + DEDUCT + UNDO
   // =========================================
-  async function copyAndDeduct(key){
+  async async function copyAndDeduct(key){
     const it = items.find(x => itemKey(x) === key);
     if(!it){ toast("Item not found"); return; }
 
