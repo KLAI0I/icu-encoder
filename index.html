@@ -1,11 +1,20 @@
 <!doctype html>
 <html lang="en">
 <head>
+<script src="./xlsx.full.min.js"></script>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>ICU Encoding Dashboard (Local Stock Upload)</title>
+  <title>ICU Encoding Dashboard (Offline • CSV + Optional Excel Import)</title>
 
+  <!-- Tailwind (CDN). If your network blocks Tailwind too, download tailwind.min.css locally and link it. -->
   <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- OPTIONAL (Recommended): Local Excel engine (NO CDN).
+       1) Download xlsx.full.min.js and put it next to this HTML in your GitHub repo.
+       2) Uncomment the line below.
+       This enables XLS/XLSX import + true Excel export.
+  -->
+  <!-- <script src="./xlsx.full.min.js"></script> -->
 
   <style>
     .chip { border-radius: 9999px; padding: .35rem .7rem; font-weight: 600; }
@@ -14,22 +23,155 @@
     .glass { background: rgba(255,255,255,.06); backdrop-filter: blur(10px); }
     .scrollbar::-webkit-scrollbar { height: 10px; width: 10px; }
     .scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,.15); border-radius: 999px; }
-  </style>
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    .wfull { width: 100% !important; max-width: 100% !important; }
+    @media print {
+      body { background: #fff !important; color: #000 !important; }
+      header, footer, .no-print { display: none !important; }
+      .print-area { display: block !important; }
+      .card, .glass { box-shadow: none !important; background: #fff !important; }
+      table { width: 100% !important; border-collapse: collapse !important; }
+      th, td { border: 1px solid #ddd !important; padding: 6px !important; }
+    }
+  
+    /* FORCE FULL WIDTH + AUTO FIT */
+    body, main, header, footer { max-width: 100% !important; }
+    table { width: 100% !important; }
+
+    /* DOUBLE SIZE CATEGORIES (chips + headers) */
+    .catChip, .chip {
+      font-size: 1.15rem;        /* ~double perceived size */
+      padding: 0.75rem 1.1rem;   /* bigger hit area */
+    }
+    #catChips .catChip { line-height: 1.4; }
+
+    /* Category column emphasis */
+    td:nth-child(4), th:nth-child(4) {
+      font-size: 1.05rem;
+      font-weight: 700;
+    }
+    
+    /* TOUCH MODE */
+    body.touch .chip,
+    body.touch button,
+    body.touch .tabBtn {
+      font-size: 1.15rem !important;
+      padding: 0.85rem 1.2rem !important;
+      border-radius: 1.1rem !important;
+    }
+    body.touch input,
+    body.touch select {
+      font-size: 1.1rem !important;
+      padding: 0.85rem 1rem !important;
+      border-radius: 1rem !important;
+    }
+    body.touch th, body.touch td { padding: 0.85rem 0.75rem !important; font-size: 1.05rem !important; }
+    body.touch .card { border-radius: 1.25rem !important; }
+    body.touch .no-print button { min-height: 46px; }
+
+    /* CATEGORY CARDS */
+    .catCard {
+      border-radius: 1.25rem;
+      border: 1px solid rgba(255,255,255,.12);
+      box-shadow: 0 10px 30px rgba(0,0,0,.22);
+      transition: transform .08s ease, outline-color .12s ease;
+    }
+    .catCard:hover { transform: translateY(-1px); }
+    .catCardActive { outline: 3px solid rgba(255,255,255,.32); }
+
+  /* --- UI polish (Jan 2026) --- */
+  :root{ --header-h: 0px; }
+
+  /* Ticker: sticks under header (LTR), loops continuously */
+  .marqueeBar{
+    position: sticky;
+    top: var(--header-h);
+    z-index: 35; /* header is z-40 */
+    background: rgba(15,23,42,.92);
+    border-bottom: 1px solid rgba(255,255,255,.08);
+    overflow: hidden;
+  }
+  .marqueeInner{
+    display: inline-flex;
+    gap: 18px;
+    padding: 10px 0;
+    white-space: nowrap;
+    align-items: center;
+    animation: marqLR 18s linear infinite;
+    will-change: transform;
+  }
+  .marqueeInner .sep{opacity:.55}
+  @keyframes marqLR{
+    0%{transform:translateX(-100%)}
+    100%{transform:translateX(100%)}
+  }
+
+  .appFooter{position:sticky; bottom:0; z-index:40; margin-top:18px; padding:12px 14px; text-align:center; font-weight:800;
+    background:rgba(2,6,23,.95); border-top:1px solid rgba(255,255,255,.08); color:rgba(226,232,240,.92);}
+  .catSticker{font-size:2.15rem; line-height:1; display:inline-block; margin-right:8px;}
+  th{letter-spacing:.02em}
+  td{vertical-align:top}
+
+
+  /* Contact modal */
+  .modalBackdrop{
+    position:fixed; inset:0; z-index:80;
+    background:rgba(2,6,23,.72);
+    display:flex; align-items:center; justify-content:center;
+    padding:18px;
+  }
+  .modalPanel{
+    width:min(520px, 92vw);
+    border-radius:20px;
+    background:rgba(15,23,42,.97);
+    border:1px solid rgba(255,255,255,.10);
+    box-shadow:0 20px 60px rgba(0,0,0,.45);
+    padding:18px 18px 16px;
+  }
+  .modalClose{
+    width:38px; height:38px;
+    border-radius:14px;
+    background:rgba(148,163,184,.14);
+    border:1px solid rgba(255,255,255,.08);
+    display:grid; place-items:center;
+    cursor:pointer;
+    margin-left:auto;
+  }
+  .modalClose:hover{background:rgba(148,163,184,.22)}
+  .contactAvatar{
+    width:110px; height:110px;
+    border-radius:999px;
+    object-fit:cover;
+    border:2px solid rgba(99,102,241,.55);
+    box-shadow:0 12px 30px rgba(0,0,0,.35);
+    display:block;
+    margin:10px auto 0;
+  }
+
+</style>
+    
+    
 </head>
 
 <body class="min-h-screen bg-slate-950 text-slate-100">
-  <header class="sticky top-0 z-40 bg-slate-950/80 backdrop-blur border-b border-white/10">
-    <div class="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3">
+  <header class="sticky top-0 z-40 bg-slate-950/80 backdrop-blur border-b border-white/10 no-print">
+    <div class="wfull px-4 py-3 flex items-center gap-3">
       <div class="w-10 h-10 rounded-2xl bg-indigo-500/20 border border-indigo-400/30 grid place-items-center">
         <span class="text-xl">🏥</span>
       </div>
       <div class="flex-1">
-        <div class="text-lg font-bold leading-tight">ICU Encoding Dashboard</div>
-        <div class="text-xs text-slate-300">Local stock upload • Auto-categorize • Editable categories • No Google Sheets</div>
+        <div class="text-3xl font-extrabold leading-tight">ICU Encoding Dashboard</div>
+        <div class="text-xs text-slate-300">
+          Offline-first • Upload CSV الآن • XLS/XLSX only if local xlsx.full.min.js is included
+        </div>
       </div>
 
       <button id="btnUpload" class="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 font-semibold text-sm">
-        Upload Stock File
+        Upload Stock
+      </button>
+
+      <button id="btnTouch" class="px-3 py-2 rounded-xl bg-emerald-700/80 hover:bg-emerald-600 font-semibold text-sm">
+        🖐️ Touch Mode: OFF
       </button>
 
       <button id="btnReset" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 font-semibold text-sm">
@@ -37,38 +179,75 @@
       </button>
     </div>
 
-    <div class="max-w-7xl mx-auto px-4 pb-3">
+    <div class="wfull px-4 pb-3">
       <div class="flex flex-wrap gap-2">
         <button class="tabBtn chip bg-slate-800 hover:bg-slate-700" data-tab="dashboard">📊 Dashboard</button>
         <button class="tabBtn chip bg-slate-800 hover:bg-slate-700" data-tab="manage">🛠️ Reorganize</button>
         <button class="tabBtn chip bg-slate-800 hover:bg-slate-700" data-tab="zero">⭕ Zero Stock</button>
         <button class="tabBtn chip bg-slate-800 hover:bg-slate-700" data-tab="favorites">⭐ Favorites</button>
         <button class="tabBtn chip bg-slate-800 hover:bg-slate-700" data-tab="clipboard">📋 Copy List</button>
+        <button id="btnContact" class="chip bg-slate-800 hover:bg-slate-700">📇 Contact</button>
       </div>
-      <div id="libStatus" class="mt-2 text-xs text-amber-200/90 hidden"></div>
+
+      <div id="excelHint" class="mt-2 text-xs text-amber-200/90 hidden">
+        Excel import/export is disabled because XLSX engine is not loaded.
+        ✅ To enable: add <span class="mono">xlsx.full.min.js</span> locally in your repo and uncomment the script tag in the HTML.
+      </div>
+
+      <div class="mt-2 text-xs text-slate-300">
+        If you only have Excel: In Excel → <span class="mono">File → Save As → CSV UTF-8</span> then upload.
+      </div>
     </div>
   </header>
 
-  <main class="max-w-7xl mx-auto px-4 py-5 space-y-4">
-    <section id="emptyState" class="card glass border border-white/10 p-6 hidden">
+  <div class="marqueeBar" dir="ltr" aria-label="Reminder ticker">
+    <div class="marqueeInner">
+      <span>لا تنس ذكر الله</span>
+      <span class="sep">•</span>
+      <span>صل على محمد ﷺ</span>
+      <span class="sep">•</span>
+      <span>لا تنس ذكر الله</span>
+      <span class="sep">•</span>
+      <span>صل على محمد ﷺ</span>
+    </div>
+
+
+  <!-- Contact Modal -->
+  <div id="contactModal" class="modalBackdrop hidden" role="dialog" aria-modal="true" aria-label="Contact">
+    <div class="modalPanel" role="document">
+      <button id="contactClose" class="modalClose" aria-label="Close">✕</button>
+
+      <img class="contactAvatar" src="https://lh3.googleusercontent.com/a/ACg8ocJm80N7CY5Au-xqG8qMzaKDHrnRGyFbhAaYdWmBojqzcYCDLwXk=s432-c-no" alt="Mohamed Ghonim" />
+
+      <div class="text-center mt-3">
+        <div class="text-2xl font-extrabold leading-tight">Mohamed Ghonim</div>
+        <a class="inline-block mt-2 text-sm text-indigo-300 hover:text-indigo-200 underline break-all"
+           href="mailto:mohamed.ghonim21@gmail.com">mohamed.ghonim21@gmail.com</a>
+      </div>
+    </div>
+  </div>
+
+  </div>
+
+  <main class="wfull px-4 py-5 space-y-4">
+    <section id="emptyState" class="card glass border border-white/10 p-6 hidden no-print">
       <div class="flex items-start gap-4">
         <div class="text-3xl">📦</div>
         <div class="flex-1">
           <div class="text-xl font-bold">Upload your stock file to start</div>
           <div class="text-slate-300 mt-1">
-            Upload your <b>.xls</b> or <b>.xlsx</b> stock file once, then:
-            auto-categorize, reorganize categories, move items, keep favorites, and export zero-stock.
+            Upload <b>.csv</b> (always works) or <b>.xls/.xlsx</b> (only works if you bundled <span class="mono">xlsx.full.min.js</span> locally).
           </div>
           <div class="mt-5 flex flex-wrap gap-2">
             <button id="btnUpload2" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 font-semibold">
-              Upload Stock File
+              Upload Stock
             </button>
             <button id="btnLoadSample" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 font-semibold">
               Load Demo Data
             </button>
           </div>
           <div class="mt-3 text-xs text-slate-400">
-            If you see “XLSX is not defined”, your network is blocking the Excel library CDN. This page auto-tries 3 CDNs.
+            Columns auto-detected: code / item name / quantity (header names can vary).
           </div>
         </div>
       </div>
@@ -76,50 +255,52 @@
 
     <!-- DASHBOARD -->
     <section id="tab-dashboard" class="tabPanel hidden space-y-4">
-      <div class="card glass border border-white/10 p-4">
+      <div class="card glass border border-white/10 p-4 no-print">
         <div class="flex flex-col lg:flex-row gap-3 lg:items-center">
           <div class="flex-1">
             <div class="text-sm text-slate-300 mb-1">Search (all items)</div>
             <input id="searchAll" class="w-full px-3 py-2 rounded-xl bg-slate-900/70 border border-white/10 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                    placeholder="Search by code or name"/>
           </div>
-          <div class="flex gap-2">
+          <div class="flex gap-2 flex-wrap">
             <button id="btnExportJson" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 font-semibold text-sm">⬇️ Backup JSON</button>
             <label class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 font-semibold text-sm cursor-pointer">
               ⬆️ Restore JSON
               <input id="jsonImport" type="file" accept=".json" class="hidden"/>
             </label>
+            <button id="btnPrintDashboard" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 font-semibold text-sm">🖨️ Export PDF</button>
           </div>
         </div>
 
-        <div class="mt-4 flex flex-wrap gap-2 scrollbar overflow-x-auto">
-          <button class="catChip chip bg-indigo-600/80 hover:bg-indigo-500" data-cat="__ALL__">🗂️ All</button>
-          <div id="catChips" class="flex flex-wrap gap-2"></div>
+        <div class="mt-4">
+          <div class="text-sm text-slate-300 mb-2">Categories</div>
+          <div id="catCards" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3"></div>
         </div>
       </div>
 
       <div class="card glass border border-white/10 p-4">
-        <div class="flex flex-wrap items-center justify-between gap-2">
+        <div class="flex flex-wrap items-center justify-between gap-2 no-print">
           <div>
             <div class="text-lg font-bold" id="dashTitle">All Items</div>
             <div class="text-sm text-slate-300" id="dashSubtitle">0 items</div>
           </div>
-          <div class="flex gap-2">
+          <div class="flex gap-2 flex-wrap">
             <button id="btnUndoCopy" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 font-semibold text-sm">↩️ Undo</button>
             <button id="btnOpenClipboard" class="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 font-semibold text-sm">📋 Open Copy List</button>
           </div>
         </div>
 
         <div class="mt-3 overflow-auto border border-white/10 rounded-xl">
-          <table class="w-full text-sm">
+          <table class="w-full text-sm" id="tblDashboard">
             <thead class="bg-white/5 text-slate-200">
               <tr>
-                <th class="text-left p-2">⭐</th>
+                <th class="text-left p-2 no-print">⭐</th>
+                <th class="text-right p-2 no-print">Action</th>
+                <th class="text-right p-2">Qty</th>
                 <th class="text-left p-2">Code</th>
                 <th class="text-left p-2">Item</th>
-                <th class="text-left p-2">Category</th>
-                <th class="text-right p-2">Qty</th>
-                <th class="text-right p-2">Action</th>
+                <th class="text-left p-2">Batch</th>
+                <th class="text-left p-2">Expiry</th>
               </tr>
             </thead>
             <tbody id="itemsTbody"></tbody>
@@ -131,14 +312,28 @@
     <!-- MANAGE -->
     <section id="tab-manage" class="tabPanel hidden space-y-4">
       <div class="grid lg:grid-cols-3 gap-4">
-        <div class="card glass border border-white/10 p-4">
+        <div class="card glass border border-white/10 p-4 no-print">
           <div class="text-lg font-bold">🧩 Categories</div>
-          <div class="text-sm text-slate-300 mt-1">Rename, add, or delete categories.</div>
+          <div class="text-sm text-slate-300 mt-1">Rename, add, delete. Emojis are allowed in names.</div>
 
           <div class="mt-3 flex gap-2">
             <input id="newCatName" class="flex-1 px-3 py-2 rounded-xl bg-slate-900/70 border border-white/10 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                   placeholder="New category name"/>
+                   placeholder="New category name (e.g., 💉 Syringes)"/>
             <button id="btnAddCat" class="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 font-semibold">Add</button>
+          </div>
+
+          <div class="mt-2 flex flex-wrap gap-2 text-xs">
+            <span class="text-slate-300 self-center">Quick stickers:</span>
+            <button class="emojiPick chip bg-slate-800 hover:bg-slate-700" data-emoji="💉">💉</button>
+            <button class="emojiPick chip bg-slate-800 hover:bg-slate-700" data-emoji="🩸">🩸</button>
+            <button class="emojiPick chip bg-slate-800 hover:bg-slate-700" data-emoji="🩹">🩹</button>
+            <button class="emojiPick chip bg-slate-800 hover:bg-slate-700" data-emoji="🧤">🧤</button>
+            <button class="emojiPick chip bg-slate-800 hover:bg-slate-700" data-emoji="🫁">🫁</button>
+            <button class="emojiPick chip bg-slate-800 hover:bg-slate-700" data-emoji="🚽">🚽</button>
+            <button class="emojiPick chip bg-slate-800 hover:bg-slate-700" data-emoji="🧪">🧪</button>
+            <button class="emojiPick chip bg-slate-800 hover:bg-slate-700" data-emoji="💊">💊</button>
+            <button class="emojiPick chip bg-slate-800 hover:bg-slate-700" data-emoji="🧼">🧼</button>
+            <button class="emojiPick chip bg-slate-800 hover:bg-slate-700" data-emoji="🗂️">🗂️</button>
           </div>
 
           <div id="catList" class="mt-3 space-y-2 max-h-[60vh] overflow-auto scrollbar pr-1"></div>
@@ -149,7 +344,7 @@
         </div>
 
         <div class="lg:col-span-2 card glass border border-white/10 p-4">
-          <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="flex flex-wrap items-center justify-between gap-2 no-print">
             <div>
               <div class="text-lg font-bold">🛠️ Reorganize Items</div>
               <div class="text-sm text-slate-300 mt-1">Select items → choose a new category → Move.</div>
@@ -160,23 +355,26 @@
             </div>
           </div>
 
-          <div class="mt-3 grid md:grid-cols-3 gap-2">
+          <div class="mt-3 grid md:grid-cols-3 gap-2 no-print">
             <input id="manageSearch" class="md:col-span-2 px-3 py-2 rounded-xl bg-slate-900/70 border border-white/10 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                    placeholder="Search items to move (code/name)"/>
             <select id="moveTargetCat" class="px-3 py-2 rounded-xl bg-slate-900/70 border border-white/10 focus:outline-none focus:ring-2 focus:ring-indigo-500"></select>
           </div>
 
-          <div class="mt-2 flex gap-2">
+          <div class="mt-2 flex gap-2 items-center no-print">
             <button id="btnMoveSelected" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 font-semibold">Move Selected</button>
-            <span id="moveStatus" class="text-sm text-slate-300 self-center"></span>
+            <span id="moveStatus" class="text-sm text-slate-300"></span>
+            <button id="btnPrintManage" class="ml-auto px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 font-semibold text-sm">🖨️ Export PDF</button>
           </div>
 
           <div class="mt-3 overflow-auto border border-white/10 rounded-xl max-h-[62vh]">
-            <table class="w-full text-sm">
+            <table class="w-full text-sm" id="tblManage">
               <thead class="bg-white/5 text-slate-200 sticky top-0">
                 <tr>
-                  <th class="p-2 w-10"></th>
+                  <th class="p-2 w-10 no-print"></th>
                   <th class="text-left p-2">Code</th>
+                  <th class="text-left p-2">Batch</th>
+                  <th class="text-left p-2">Expiry</th>
                   <th class="text-left p-2">Item</th>
                   <th class="text-left p-2">Current Category</th>
                   <th class="text-right p-2">Qty</th>
@@ -192,21 +390,25 @@
     <!-- ZERO -->
     <section id="tab-zero" class="tabPanel hidden space-y-4">
       <div class="card glass border border-white/10 p-4">
-        <div class="flex flex-wrap items-center justify-between gap-2">
+        <div class="flex flex-wrap items-center justify-between gap-2 no-print">
           <div>
             <div class="text-lg font-bold">⭕ Zero Stock</div>
             <div class="text-sm text-slate-300 mt-1">Items where quantity = 0</div>
           </div>
-          <div class="flex gap-2">
-            <button id="btnExportZeroXlsx" class="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 font-semibold text-sm">⬇️ Export Excel</button>
+          <div class="flex gap-2 flex-wrap">
+            <button id="btnExportZeroExcel" class="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 font-semibold text-sm">⬇️ Export Excel</button>
+            <button id="btnExportZeroCsv" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 font-semibold text-sm">⬇️ Export CSV</button>
+            <button id="btnPrintZero" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 font-semibold text-sm">🖨️ Export PDF</button>
           </div>
         </div>
 
         <div class="mt-3 overflow-auto border border-white/10 rounded-xl">
-          <table class="w-full text-sm">
+          <table class="w-full text-sm" id="tblZero">
             <thead class="bg-white/5 text-slate-200">
               <tr>
                 <th class="text-left p-2">Code</th>
+                <th class="text-left p-2">Batch</th>
+                <th class="text-left p-2">Expiry</th>
                 <th class="text-left p-2">Item</th>
                 <th class="text-left p-2">Category</th>
                 <th class="text-right p-2">Qty</th>
@@ -221,23 +423,29 @@
     <!-- FAVORITES -->
     <section id="tab-favorites" class="tabPanel hidden space-y-4">
       <div class="card glass border border-white/10 p-4">
-        <div class="flex flex-wrap items-center justify-between gap-2">
+        <div class="flex flex-wrap items-center justify-between gap-2 no-print">
           <div>
             <div class="text-lg font-bold">⭐ Favorites</div>
             <div class="text-sm text-slate-300 mt-1">Quick access to your favorite items</div>
           </div>
-          <button id="btnExportFavXlsx" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 font-semibold text-sm">⬇️ Export Excel</button>
+          <div class="flex gap-2 flex-wrap">
+            <button id="btnExportFavExcel" class="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 font-semibold text-sm">⬇️ Export Excel</button>
+            <button id="btnExportFavCsv" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 font-semibold text-sm">⬇️ Export CSV</button>
+            <button id="btnPrintFav" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 font-semibold text-sm">🖨️ Export PDF</button>
+          </div>
         </div>
 
         <div class="mt-3 overflow-auto border border-white/10 rounded-xl">
-          <table class="w-full text-sm">
+          <table class="w-full text-sm" id="tblFav">
             <thead class="bg-white/5 text-slate-200">
               <tr>
+                <th class="text-left p-2 no-print">⭐</th>
+                <th class="text-right p-2 no-print">Action</th>
+                <th class="text-right p-2">Qty</th>
                 <th class="text-left p-2">Code</th>
                 <th class="text-left p-2">Item</th>
-                <th class="text-left p-2">Category</th>
-                <th class="text-right p-2">Qty</th>
-                <th class="text-right p-2">Action</th>
+                <th class="text-left p-2">Batch</th>
+                <th class="text-left p-2">Expiry</th>
               </tr>
             </thead>
             <tbody id="favTbody"></tbody>
@@ -249,112 +457,72 @@
     <!-- CLIPBOARD -->
     <section id="tab-clipboard" class="tabPanel hidden space-y-4">
       <div class="card glass border border-white/10 p-4">
-        <div class="flex flex-wrap items-center justify-between gap-2">
+        <div class="flex flex-wrap items-center justify-between gap-2 no-print">
           <div>
             <div class="text-lg font-bold">📋 Copy List</div>
             <div class="text-sm text-slate-300 mt-1">Copied items (Copy deducts from stock).</div>
           </div>
-          <div class="flex gap-2">
-            <button id="btnExportClipboardXlsx" class="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 font-semibold text-sm">⬇️ Export Excel</button>
+          <div class="flex gap-2 flex-wrap">
+            <button id="btnExportClipboardExcel" class="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 font-semibold text-sm">⬇️ Export Excel</button>
+            <button id="btnExportClipboardCsv" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 font-semibold text-sm">⬇️ Export CSV</button>
+            <button id="btnPrintClipboard" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 font-semibold text-sm">🖨️ Export PDF</button>
             <button id="btnClearClipboard" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 font-semibold text-sm">🧹 Clear</button>
           </div>
         </div>
 
         <div class="mt-3 overflow-auto border border-white/10 rounded-xl">
-          <table class="w-full text-sm">
+          <table class="w-full text-sm" id="tblClipboard">
             <thead class="bg-white/5 text-slate-200">
               <tr>
+                <th class="text-right p-2 no-print">Action</th>
+                <th class="text-right p-2">Qty Copied</th>
                 <th class="text-left p-2">Code</th>
                 <th class="text-left p-2">Item</th>
-                <th class="text-left p-2">Category</th>
-                <th class="text-right p-2">Qty Copied</th>
-                <th class="text-right p-2">Action</th>
+                <th class="text-left p-2">Batch</th>
+                <th class="text-left p-2">Expiry</th>
               </tr>
             </thead>
             <tbody id="clipTbody"></tbody>
           </table>
         </div>
 
-        <div class="mt-3 flex flex-wrap gap-2 items-center">
+        <div class="mt-3 flex flex-wrap gap-2 items-center no-print">
           <button id="btnUndoFromClipboard" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 font-semibold text-sm">↩️ Undo Last Copy</button>
           <span id="undoStatus" class="text-sm text-slate-300"></span>
         </div>
       </div>
     </section>
 
+    <!-- Print-only helper -->
+    <section class="print-area hidden">
+      <div id="printTitle" class="text-xl font-bold mb-2"></div>
+      <div id="printSub" class="text-sm mb-4"></div>
+      <div id="printTableHost"></div>
+    </section>
   </main>
 
-  <footer class="mt-10 border-t border-white/10 bg-slate-950/70 backdrop-blur">
-    <div class="max-w-7xl mx-auto px-4 py-4 text-center text-sm text-slate-300">
+  <footer class="mt-10 border-t border-white/10 bg-slate-950/70 backdrop-blur no-print">
+    <div class="wfull px-4 py-4 text-center text-sm text-slate-300">
       Designed by Mr.Mohamed Ali Ghonim – ICU Head Nurse
     </div>
   </footer>
 
-  <input id="fileInput" type="file" accept=".xls,.xlsx" class="hidden"/>
+  <input id="fileInput" type="file" accept=".csv,text/csv,.xls,.xlsx" class="hidden"/>
 
   <script>
-    // XLSX loader: tries multiple CDNs so XLSX is defined even if one is blocked
-    const XLSX_CDNS = [
-      "https://cdn.jsdelivr.net/npm/xlsx@0.19.3/dist/xlsx.full.min.js",
-      "https://unpkg.com/xlsx@0.19.3/dist/xlsx.full.min.js",
-      "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.19.3/xlsx.full.min.js"
-    ];
 
-    function setLibStatus(msg, isError=false) {
-      const el = document.getElementById("libStatus");
-      el.classList.remove("hidden");
-      el.textContent = msg;
-      el.className = "mt-2 text-xs " + (isError ? "text-rose-200/90" : "text-amber-200/90");
+    // --- Sticky ticker offset: keep the ticker frozen directly below the header ---
+    function syncTickerOffset(){
+      const header = document.querySelector("header");
+      const h = header ? header.offsetHeight : 0;
+      document.documentElement.style.setProperty("--header-h", h + "px");
     }
+    window.addEventListener("load", syncTickerOffset);
+    window.addEventListener("resize", syncTickerOffset);
 
-    function loadScript(src) {
-      return new Promise((resolve, reject) => {
-        const s = document.createElement("script");
-        s.src = src;
-        s.async = true;
-        s.onload = () => resolve();
-        s.onerror = () => reject(new Error("Failed to load " + src));
-        document.head.appendChild(s);
-      });
-    }
-
-    async function ensureXlsxLoaded() {
-      if (typeof XLSX !== "undefined") return true;
-
-      for (let i=0;i<XLSX_CDNS.length;i++) {
-        const url = XLSX_CDNS[i];
-        try {
-          setLibStatus(`Loading Excel engine… (${i+1}/${XLSX_CDNS.length})`);
-          await loadScript(url);
-          if (typeof XLSX !== "undefined") {
-            setLibStatus("Excel engine loaded ✅");
-            setTimeout(() => document.getElementById("libStatus").classList.add("hidden"), 1500);
-            return true;
-          }
-        } catch (e) {
-          console.warn(e);
-        }
-      }
-
-      setLibStatus("Excel engine could NOT load. Your network is blocking CDNs. Try another internet network or allow jsdelivr/unpkg/cdnjs.", true);
-      return false;
-    }
-
-    /********************
-     * Local-only State *
-     ********************/
-    const LS_KEY = "icu_encoding_local_stock_v1";
-
-    const state = {
-      items: [],
-      categories: [],
-      clipboard: [],
-      history: [],
-      activeTab: "dashboard",
-      activeCategory: "__ALL__",
-      search: "",
-      manageSearch: ""
-    };
+    const LS_KEY = "icu_encoding_local_stock_hybrid_v2";
+    const LS_UI_KEY = LS_KEY + "_ui";
+    const state = { items: [], categories: [], clipboard: [], history: [], activeTab: "dashboard", activeCategory: "__ALL__", search: "", manageSearch: "", touch: false};
 
     const CATEGORY_STICKERS = {
       "Syringes & Needles": "💉",
@@ -367,723 +535,902 @@
       "Medications": "💊",
       "Disinfection": "🧼",
       "Stationery": "🗂️",
-      "Uncategorized": "🏷️"
+      "Uncategorized": "🏷️",
+      "Monitoring & ECG": "🫀",
+      "Feeding & NG": "🥣",
+      "Drainage & Suction": "🧯"
     };
 
+    // Per-category color theme (Tailwind class fragments)
+    const CATEGORY_COLORS = {
+      "Uncategorized": "from-slate-800/70 to-slate-900/70 border-slate-400/20",
+      "Syringes & Needles": "from-sky-600/30 to-sky-900/40 border-sky-400/20",
+      "IV Cannula & Lines": "from-indigo-600/30 to-indigo-900/40 border-indigo-400/20",
+      "Dressing & Gauze": "from-rose-600/30 to-rose-900/40 border-rose-400/20",
+      "Gloves & PPE": "from-amber-500/25 to-amber-900/40 border-amber-400/20",
+      "Airway & Respiratory": "from-emerald-600/25 to-emerald-900/40 border-emerald-400/20",
+      "Catheters & Urine": "from-teal-600/25 to-teal-900/40 border-teal-400/20",
+      "Labs & Sampling": "from-violet-600/25 to-violet-900/40 border-violet-400/20",
+      "Medications": "from-fuchsia-600/20 to-fuchsia-900/35 border-fuchsia-400/20",
+      "Disinfection": "from-cyan-600/20 to-cyan-900/35 border-cyan-400/20",
+      "Stationery": "from-slate-600/25 to-slate-900/40 border-slate-400/20",
+      "Monitoring & ECG": "from-red-600/20 to-red-900/35 border-red-400/20",
+      "Feeding & NG": "from-lime-600/15 to-lime-900/30 border-lime-400/20",
+      "Drainage & Suction": "from-orange-600/20 to-orange-900/35 border-orange-400/20",
+    };
+
+    function catTheme(cat) {
+      const known = CATEGORY_COLORS[cat];
+      if (known) return known;
+      const themes = [
+        "from-fuchsia-600/30 to-purple-900/45 border-fuchsia-400/25",
+        "from-cyan-600/25 to-sky-900/45 border-cyan-400/25",
+        "from-emerald-600/25 to-teal-900/45 border-emerald-400/25",
+        "from-amber-500/22 to-orange-900/45 border-amber-400/25",
+        "from-rose-600/25 to-pink-900/45 border-rose-400/25",
+        "from-violet-600/28 to-indigo-900/45 border-violet-400/25",
+        "from-lime-500/20 to-green-900/45 border-lime-400/25",
+      ];
+      let h = 0;
+      const s = String(cat || "");
+      for (let i=0;i<s.length;i++) h = (h*31 + s.charCodeAt(i)) >>> 0;
+      return themes[h % themes.length];
+    }
+
+
     const AUTO_RULES = [
-      { cat: "Syringes & Needles", kw: ["syringe","needle","insulin","bd ","bd-","luer","hypodermic","scalp vein","butterfly"] },
-      { cat: "IV Cannula & Lines", kw: ["cannula","iv","venflon","extension","stopcock","3-way","3 way","infusion","set","macrodrip","microdrip","y-site","y site","connector"] },
-      { cat: "Dressing & Gauze", kw: ["gauze","dressing","bandage","tape","micropore","tegaderm","opsit","cotton","swab","pad","plaster"] },
-      { cat: "Gloves & PPE", kw: ["glove","mask","n95","gown","cap","shoe cover","face shield","ppe"] },
-      { cat: "Airway & Respiratory", kw: ["ett","endotracheal","tube","hme","catheter mount","neb","nebulizer","oxygen","nasal","venturi","bvm","ambu","laryngeal","trach","tracheostomy","suction","yankauer","circuit","filter"] },
-      { cat: "Catheters & Urine", kw: ["foley","catheter","urine","urobag","u-bag","urinometer","suprapubic"] },
-      { cat: "Labs & Sampling", kw: ["vacutainer","edta","citrate","serum","culture","specimen","lancet"] },
-      { cat: "Medications", kw: ["amp","vial","tab","capsule","mg","ml","heparin","saline","dextrose","adrenaline","noradrenaline","dopamine","midazolam","propofol"] },
-      { cat: "Disinfection", kw: ["alcohol","chlorhex","betadine","iodine","disinfect","sanit","glutar","bleach"] },
-      { cat: "Stationery", kw: ["paper","label","marker","pen","file","clip","sticker"] },
+      { cat: "Syringes & Needles", kw: ["syringe","needle","insulin","bd ","bd-","luer","hypodermic","scalp vein","butterfly","spinal needle","iv needle","syring","needle"] },
+      { cat: "IV Cannula & Lines", kw: ["cannula","iv","venflon","extension","stopcock","3-way","3 way","infusion","giving set","iv set","macrodrip","microdrip","y-site","y site","connector","hub","iv line","pressure transducer","arterial line","cvp","central line","cvc","pigtail","needleless connector"] },
+      { cat: "Dressing & Gauze", kw: ["gauze","dressing","bandage","tape","micropore","tegaderm","opsit","cotton","swab","pad","plaster","wound","steristrip","mepilex","foam dressing","non-adherent","crepe","elastic bandage"] },
+      { cat: "Gloves & PPE", kw: ["glove","mask","n95","gown","cap","shoe cover","face shield","ppe","apron","visor","respirator"] },
+      { cat: "Airway & Respiratory", kw: ["ett","endotracheal","tube","hme","catheter mount","neb","nebulizer","oxygen","nasal","venturi","bvm","ambu","laryngeal","lma","trach","tracheostomy","suction","yankauer","circuit","filter","hmef","oral airway","nasal airway","opa","npa","stylet","bougie","non rebreather","rebreather","humidifier","cpap","bipap"] },
+      { cat: "Catheters & Urine", kw: ["foley","catheter","urine","urobag","u-bag","urinometer","suprapubic","urinary","nelaton","straight catheter","cath"] },
+      { cat: "Labs & Sampling", kw: ["vacutainer","edta","citrate","serum","culture","specimen","lancet","abg","arterial blood gas","blood culture","urine culture","sample","tube purple","tube blue","tube red","tube yellow"] },
+      { cat: "Medications", kw: ["amp","vial","tab","tablet","capsule","mg","ml","heparin","saline","dextrose","adrenaline","epinephrine","noradrenaline","norepinephrine","dopamine","midazolam","propofol","morphine","fentanyl","atropine","cef","antibiotic"] },
+      { cat: "Disinfection", kw: ["alcohol","chlorhex","betadine","iodine","disinfect","sanit","glutar","bleach","wipes","hand rub","gel"] },
+      { cat: "Stationery", kw: ["paper","label","marker","pen","file","clip","sticker","form","register","logbook"] },
+      { cat: "Monitoring & ECG", kw: ["ecg","electrode","lead","spo2","probe","nibp","cuff","temp probe","thermistor","monitoring","pressure cuff"] },
+      { cat: "Feeding & NG", kw: ["ng","nasogastric","feeding","enteral","peg","jejun","tube feeding","feeding tube","ryles","ogt","orogastric"] },
+      { cat: "Drainage & Suction", kw: ["drain","chest drain","underwater seal","suction bottle","suction canister","vacuum bottle","jp drain","hemovac","canister"] },
     ];
 
-    function uid() { return "i_" + Math.random().toString(16).slice(2) + "_" + Date.now().toString(16); }
-    function clampQty(n) { n = Number(n); if (!isFinite(n)) return 0; return Math.max(0, Math.round(n)); }
-    function stickerFor(cat) { return CATEGORY_STICKERS[cat] || "🏷️"; }
-
-    function saveState() {
-      localStorage.setItem(LS_KEY, JSON.stringify({
-        items: state.items,
-        categories: state.categories,
-        clipboard: state.clipboard,
-        history: state.history
-      }));
-    }
-
-    function loadState() {
-      try {
-        const raw = localStorage.getItem(LS_KEY);
-        if (!raw) return false;
-        const obj = JSON.parse(raw);
-        if (!obj || !Array.isArray(obj.items)) return false;
-        state.items = obj.items;
-        state.categories = Array.isArray(obj.categories) ? obj.categories : [];
-        state.clipboard = Array.isArray(obj.clipboard) ? obj.clipboard : [];
-        state.history = Array.isArray(obj.history) ? obj.history : [];
-        normalizeCategories();
-        return true;
-      } catch (e) { return false; }
-    }
-
-    function normalizeCategories() {
-      if (!state.categories.includes("Uncategorized")) state.categories.unshift("Uncategorized");
-      const used = new Set(state.items.map(i => i.category || "Uncategorized"));
-      for (const c of used) if (!state.categories.includes(c)) state.categories.push(c);
-      state.categories = Array.from(new Set(state.categories.filter(Boolean)));
-    }
-
-    function categorizeItem(name, code) {
-      const s = ((name || "") + " " + (code || "")).toLowerCase();
-      for (const r of AUTO_RULES) {
-        if (r.kw.some(k => s.includes(k))) return r.cat;
+    function uid(){ return "i_"+Math.random().toString(16).slice(2)+"_"+Date.now().toString(16); }
+    function clampQty(n){ n=Number(n); if(!isFinite(n)) return 0; return Math.max(0, Math.round(n)); }
+    function parseExpiry(v){
+      if(v==null) return "";
+      if(v instanceof Date && !isNaN(v)) return v.toISOString().slice(0,10);
+      if(typeof v==="number" && isFinite(v)){
+        // Excel serial date heuristic (1900 system)
+        if(v>20000 && v<60000){
+          const ms=Math.round((v-25569)*86400*1000);
+          const d=new Date(ms);
+          if(!isNaN(d)) return d.toISOString().slice(0,10);
+        }
+        return String(v);
       }
+      const s=String(v).trim();
+      if(!s) return "";
+      // normalize common date formats loosely; keep as-is if unclear
+      return s;
+    }
+        function hasEmoji(s){ return /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(String(s||"")); }
+    function stickerFor(cat){ if (hasEmoji(cat)) return ""; return CATEGORY_STICKERS[cat] || "🏷️"; }
+    function displayCat(cat){ const st=stickerFor(cat); return st ? `${st} ${cat}` : cat; }
+
+    function saveState(){ localStorage.setItem(LS_KEY, JSON.stringify({items:state.items,categories:state.categories,clipboard:state.clipboard,history:state.history})); }
+
+    function saveUiState() {
+      try { localStorage.setItem(LS_UI_KEY, JSON.stringify({ touch: !!state.touch })); } catch {}
+    }
+    function loadUiState() {
+      try {
+        const raw = localStorage.getItem(LS_UI_KEY);
+        if (!raw) return;
+        const obj = JSON.parse(raw);
+        if (obj && typeof obj.touch === "boolean") state.touch = obj.touch;
+      } catch {}
+    }
+    function applyTouchMode() {
+      document.body.classList.toggle("touch", !!state.touch);
+      const btn = document.getElementById("btnTouch");
+      if (btn) btn.textContent = state.touch ? "🖐️ Touch Mode: ON" : "🖐️ Touch Mode: OFF";
+      saveUiState();
+    }
+    function loadState(){
+      try{
+        const raw=localStorage.getItem(LS_KEY); if(!raw) return false;
+        const obj=JSON.parse(raw); if(!obj||!Array.isArray(obj.items)) return false;
+        state.items=obj.items; state.categories=Array.isArray(obj.categories)?obj.categories:[]; state.clipboard=Array.isArray(obj.clipboard)?obj.clipboard:[]; state.history=Array.isArray(obj.history)?obj.history:[];
+        normalizeCategories(); return true;
+      }catch{ return false; }
+    }
+    function normalizeCategories(){
+      if(!state.categories.includes("Uncategorized")) state.categories.unshift("Uncategorized");
+      const used=new Set(state.items.map(i=>i.category||"Uncategorized"));
+      for(const c of used) if(!state.categories.includes(c)) state.categories.push(c);
+      state.categories=Array.from(new Set(state.categories.filter(Boolean)));
+    }
+    function categorizeItem(name,code){
+      const s=((name||"")+" "+(code||"")).toLowerCase();
+      for(const r of AUTO_RULES) if(r.kw.some(k=>s.includes(k))) return r.cat;
       return "Uncategorized";
     }
 
-    function detectColumns(headerRow) {
-      const norm = headerRow.map(h => String(h || "").trim().toLowerCase());
-      const idx = (patterns) => {
-        for (let i=0;i<norm.length;i++) {
-          const h = norm[i];
-          if (patterns.some(p => h === p || h.includes(p))) return i;
+    function parseCsv(text){
+      const rows=[]; let row=[]; let cur=""; let inQuotes=false;
+      for(let i=0;i<text.length;i++){
+        const ch=text[i], next=text[i+1];
+        if(inQuotes){
+          if(ch === '"' && next === '"'){ cur+='"'; i++; }
+          else if(ch === '"') inQuotes=false;
+          else cur+=ch;
+        }else{
+          if(ch === '"') inQuotes=true;
+          else if(ch === ','){ row.push(cur); cur=""; }
+          else if(ch === '\n'){ row.push(cur); rows.push(row); row=[]; cur=""; }
+          else if(ch === '\r'){}
+          else cur+=ch;
+        }
+      }
+      row.push(cur); rows.push(row);
+      while(rows.length && rows[rows.length-1].every(v=>String(v).trim()==="")) rows.pop();
+      return rows;
+    }
+
+    function detectColumns(headers){
+      // Normalize headers (handle non-breaking spaces, multiple spaces, underscores, etc.)
+      const normHeader = (h)=>{
+        return String(h||"")
+          .replace(/\u00A0/g," ")       // NBSP -> space
+          .replace(/[\s\u200B\uFEFF]+/g," ") // collapse whitespace / zero-width
+          .replace(/[_-]+/g," ")
+          .trim()
+          .toLowerCase();
+      };
+      const norm=headers.map(normHeader);
+      const idx=(patterns)=>{
+        const pats=patterns.map(normHeader);
+        for(let i=0;i<norm.length;i++){
+          const h=norm[i];
+          if(pats.some(p=>h===p || (p && h.includes(p)))) return i;
         }
         return -1;
       };
-      const codeIdx = idx(["code","item code","itemcode","barcode","sku"]);
-      const nameIdx = idx(["name","item","item name","description","product","product name"]);
-      const qtyIdx  = idx(["qty","quantity","balance","stock","on hand","available"]);
-      return { codeIdx, nameIdx, qtyIdx };
+
+      // Your FIXED headers:
+      // Item Code | Item Name | PieceQty | Expiry Date | Batch No
+      // STRICT: use ONLY the 'Item Code' column as code.
+      // Never use 'Generic Code', 'Code', 'Barcode', etc.
+      let codeIdx = -1;
+      for(let i=0;i<norm.length;i++){
+        if(norm[i]==="item code" || norm[i]==="itemcode"){
+          codeIdx = i;
+          break;
+        }
+      }
+      const nameIdx = idx(["item name","name","item","description","product","product name"]);
+      const qtyIdx  = idx(["pieceqty","piece qty","qty","quantity","balance","stock","on hand","available"]);
+      const expIdx  = idx(["expiry date","expiry","exp","exp date","expiration","expiration date","use by","best before"]);
+      const batchIdx= idx(["batch no","batch","batch number","lot","lot no","lot number"]);
+
+      return {codeIdx,nameIdx,batchIdx,expIdx,qtyIdx};
     }
 
-    async function importExcelFile(file) {
-      if (typeof XLSX === "undefined") throw new Error("Excel engine not loaded (XLSX).");
+    async function importRows(rows){
+      if(!rows||rows.length<2) throw new Error("File looks empty.");
 
-      const buf = await file.arrayBuffer();
-      const wb = XLSX.read(buf, { type: "array" });
+      let headerRowIndex=0;
+      for(let r=0;r<rows.length;r++){ if(rows[r] && rows[r].some(v=>String(v).trim()!=="")){ headerRowIndex=r; break; } }
 
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: "" });
-      if (!aoa || aoa.length < 2) throw new Error("The sheet looks empty.");
+      const headers=(rows[headerRowIndex]||[]).map(v=>String(v||"").trim());
+      const det=detectColumns(headers);
 
-      let headerRowIndex = 0;
-      for (let r=0;r<aoa.length;r++) {
-        const row = aoa[r];
-        if (row.some(v => String(v).trim() !== "")) { headerRowIndex = r; break; }
+      const fallback={
+        codeIdx:  det.codeIdx, // strictly use only detected 'Item Code'
+        nameIdx:  det.nameIdx>=0 ? det.nameIdx  : 1,
+        batchIdx: det.batchIdx>=0? det.batchIdx : -1,
+        expIdx:   det.expIdx>=0  ? det.expIdx   : -1,
+        qtyIdx:   det.qtyIdx>=0  ? det.qtyIdx   : 2
+      };
+
+      // If we could not detect 'Item Code' column, abort instead of using any other code (e.g., Generic Code)
+      if(fallback.codeIdx == null || fallback.codeIdx < 0){
+        throw new Error("Required header 'Item Code' not found. Please keep header exactly: Item Code");
       }
 
-      const headers = aoa[headerRowIndex].map(v => String(v || "").trim());
-      const {codeIdx, nameIdx, qtyIdx} = detectColumns(headers);
-      const fallback = { codeIdx: codeIdx>=0?codeIdx:0, nameIdx: nameIdx>=0?nameIdx:1, qtyIdx: qtyIdx>=0?qtyIdx:2 };
+      const newItems=[];
+      for(let r=headerRowIndex+1;r<rows.length;r++){
+        const row=rows[r];
+        if(!row||row.every(v=>String(v).trim()==="")) continue;
 
-      const newItems = [];
-      for (let r = headerRowIndex + 1; r < aoa.length; r++) {
-        const row = aoa[r];
-        if (!row || row.every(v => String(v).trim() === "")) continue;
+        const code=normalizeCodeString(row[fallback.codeIdx]??"");
+        if(!code) continue; // ✅ Neglect items without item code
 
-        const code = String(row[fallback.codeIdx] ?? "").trim();
-        const name = String(row[fallback.nameIdx] ?? "").trim();
-        const qty  = clampQty(row[fallback.qtyIdx] ?? 0);
-        if (!code && !name) continue;
+        const name=String(row[fallback.nameIdx]??"").trim();
+        const batch=(fallback.batchIdx>=0) ? String(row[fallback.batchIdx]??"").trim() : "";
+        const expiry=(fallback.expIdx>=0) ? parseExpiry(row[fallback.expIdx]) : "";
+        const qty =clampQty(row[fallback.qtyIdx]??0);
 
-        const cat = categorizeItem(name, code);
-        newItems.push({ id: uid(), code, name, qty, category: cat, fav: false });
+        newItems.push({id:uid(),code,name,batch,expiry,qty,category:categorizeItem(name,code),fav:false});
       }
 
-      state.items = newItems;
+      state.items=newItems;
       normalizeCategories();
-      state.clipboard = [];
-      state.history = [];
+      state.clipboard=[];
+      state.history=[];
       saveState();
       renderAll();
       showEmptyIfNeeded();
     }
 
-    function loadDemo() {
-      const demo = [
-        {code:"IV-001", name:"IV Cannula 18G", qty:12},
-        {code:"SY-010", name:"Syringe 10 ml Luer Lock", qty:0},
-        {code:"GA-004", name:"Sterile Gauze 10x10", qty:55},
-        {code:"PP-002", name:"N95 Mask", qty:8},
-        {code:"AI-003", name:"Endotracheal Tube 7.5", qty:3},
-        {code:"UR-009", name:"Foley Catheter 16Fr", qty:0},
-      ];
-      state.items = demo.map(d => ({
-        id: uid(),
-        code: d.code,
-        name: d.name,
-        qty: clampQty(d.qty),
-        category: categorizeItem(d.name, d.code),
-        fav: false
-      }));
-      normalizeCategories();
-      state.clipboard = [];
-      state.history = [];
-      saveState();
-      renderAll();
-      showEmptyIfNeeded();
+    async function importCsvText(text){
+      const rows=parseCsv(text);
+      while(rows.length && rows[rows.length-1].every(v=>String(v).trim()==="")) rows.pop();
+      await importRows(rows);
     }
 
-    function resetAll() {
-      if (!confirm("Reset everything? This will clear the uploaded stock, categories, favorites, and copy list.")) return;
+    async function importCsvFile(file){ const text=await file.text(); await importCsvText(text); }
+
+    async function importExcelFile(file){
+      if(typeof XLSX==="undefined") throw new Error("Excel import is disabled (XLSX engine missing). Upload CSV instead.");
+      const buf=await file.arrayBuffer();
+      const wb=XLSX.read(buf,{type:"array"});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      // Preserve displayed values (avoid 2.011E+13)
+      const rows=XLSX.utils.sheet_to_json(ws,{header:1, raw:true, defval:""}); // raw:true keeps full integer value for Item Code (avoids rounded scientific display)
+      await importRows(rows);
+    }
+
+    function downloadCsv(filename, rows){
+      const esc=(v)=>{ const s=String(v??""); if(s.includes('"')||s.includes(",")||s.includes("\n")||s.includes("\r")) return '"'+s.replaceAll('"','""')+'"'; return s; };
+      const lines=rows.map(r=>r.map(esc).join(",")).join("\n");
+      const blob=new Blob([lines],{type:"text/csv;charset=utf-8"});
+      const a=document.createElement("a");
+      a.href=URL.createObjectURL(blob); a.download=filename;
+      document.body.appendChild(a); a.click();
+      setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },500);
+    }
+
+    function exportExcelOrCsv(filenameBase, headerRow, rowsArray){
+      if(typeof XLSX!=="undefined"){
+        const jsonRows=rowsArray.map(r=>{ const o={}; for(let i=0;i<headerRow.length;i++) o[headerRow[i]]=r[i]; return o; });
+        const ws=XLSX.utils.json_to_sheet(jsonRows);
+        const wb=XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb,ws,"Sheet1");
+        XLSX.writeFile(wb, filenameBase+".xlsx");
+      }else{
+        downloadCsv(filenameBase+".csv",[headerRow,...rowsArray]);
+      }
+    }
+
+    function loadDemo(){
+      const demo=[{code:"1001",name:"IV Cannula 18G",qty:12},{code:"1002",name:"Syringe 10 ml Luer Lock",qty:0},{code:"1003",name:"Sterile Gauze 10x10",qty:55},{code:"1004",name:"N95 Mask",qty:8},{code:"1005",name:"Endotracheal Tube 7.5",qty:3},{code:"1006",name:"Foley Catheter 16Fr",qty:0}];
+      state.items=demo.map(d=>({id:uid(),code:d.code,name:d.name,qty:clampQty(d.qty),category:categorizeItem(d.name,d.code),fav:false}));
+      normalizeCategories(); state.clipboard=[]; state.history=[]; saveState(); renderAll(); showEmptyIfNeeded();
+    }
+
+    function resetAll(){
+      if(!confirm("Reset everything? This will clear stock, categories, favorites, and copy list.")) return;
       localStorage.removeItem(LS_KEY);
-      state.items = [];
-      state.categories = [];
-      state.clipboard = [];
-      state.history = [];
-      state.activeCategory = "__ALL__";
-      state.search = "";
-      state.manageSearch = "";
-      renderAll();
-      showEmptyIfNeeded();
+      state.items=[]; state.categories=[]; state.clipboard=[]; state.history=[];
+      state.activeCategory="__ALL__"; state.search=""; state.manageSearch="";
+      renderAll(); showEmptyIfNeeded();
     }
 
-    function exportXlsx(rows, filename) {
-      if (typeof XLSX === "undefined") return alert("Excel engine not loaded. Cannot export.");
-      const ws = XLSX.utils.json_to_sheet(rows);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
-      XLSX.writeFile(wb, filename);
-    }
+    function toggleFav(id){ const it=state.items.find(x=>x.id===id); if(!it) return; it.fav=!it.fav; saveState(); renderAll(); }
 
-    function toggleFav(id) {
-      const it = state.items.find(x => x.id === id);
-      if (!it) return;
-      it.fav = !it.fav;
-      saveState();
-      renderAll();
-    }
+    function doCopyOne(id){
+      const it=state.items.find(x=>x.id===id); if(!it) return;
+      if(it.qty<=0) return alert("This item is already 0 stock.");
 
-    function doCopyOne(id) {
-      const it = state.items.find(x => x.id === id);
-      if (!it) return;
-      if (it.qty <= 0) {
-        alert("This item is already 0 stock.");
-        return;
-      }
-      it.qty = clampQty(it.qty - 1);
-
-      const existing = state.clipboard.find(x => x.id === id);
-      if (existing) existing.qtyCopied += 1;
-      else state.clipboard.push({ id: it.id, code: it.code, name: it.name, category: it.category, qtyCopied: 1 });
-
-      state.history.push({ type: "copy", id: it.id, delta: 1, ts: Date.now() });
-      saveState();
-      renderAll();
-      flashUndo("Copied ✅ (qty -1)");
-    }
-
-    function undoLastCopy() {
-      let lastIdx = -1;
-      for (let i = state.history.length - 1; i >= 0; i--) {
-        if (state.history[i].type === "copy") { lastIdx = i; break; }
-      }
-      if (lastIdx === -1) {
-        flashUndo("Nothing to undo.");
-        return;
-      }
-
-      const act = state.history.splice(lastIdx, 1)[0];
-      const it = state.items.find(x => x.id === act.id);
-      if (it) it.qty = clampQty(it.qty + act.delta);
-
-      const clip = state.clipboard.find(x => x.id === act.id);
-      if (clip) {
-        clip.qtyCopied -= act.delta;
-        if (clip.qtyCopied <= 0) state.clipboard = state.clipboard.filter(x => x.id !== act.id);
-      }
-
-      saveState();
-      renderAll();
-      flashUndo("Undo ✅ (qty +1)");
-    }
-
-    function removeClipItem(id) {
-      state.clipboard = state.clipboard.filter(x => x.id !== id);
-      saveState();
-      renderAll();
-    }
-
-    function clearClipboard() {
-      if (!confirm("Clear the copy list? (Stock quantities will remain as currently deducted.)")) return;
-      state.clipboard = [];
-      saveState();
-      renderAll();
-    }
-
-    function addCategory(name) {
-      name = (name || "").trim();
-      if (!name) return;
-      if (state.categories.includes(name)) return alert("Category already exists.");
-      state.categories.push(name);
-      saveState();
-      renderAll();
-    }
-
-    function renameCategory(oldName, newName) {
-      newName = (newName || "").trim();
-      if (!newName) return;
-      if (oldName === newName) return;
-      if (state.categories.includes(newName)) return alert("This category name already exists.");
-
-      state.categories = state.categories.map(c => c === oldName ? newName : c);
-
-      for (const it of state.items) {
-        if (it.category === oldName) it.category = newName;
-      }
-      for (const c of state.clipboard) {
-        if (c.category === oldName) c.category = newName;
-      }
-      if (state.activeCategory === oldName) state.activeCategory = newName;
-
-      saveState();
-      renderAll();
-    }
-
-    function deleteCategory(cat) {
-      if (cat === "Uncategorized") return alert("Uncategorized cannot be deleted.");
-      if (!confirm(`Delete category "${cat}"? Items will move to "Uncategorized".`)) return;
-
-      state.categories = state.categories.filter(c => c !== cat);
-      for (const it of state.items) {
-        if (it.category === cat) it.category = "Uncategorized";
-      }
-      for (const c of state.clipboard) {
-        if (c.category === cat) c.category = "Uncategorized";
-      }
-      if (state.activeCategory === cat) state.activeCategory = "__ALL__";
-
-      saveState();
-      renderAll();
-    }
-
-    function moveSelectedItems(targetCat, selectedIds) {
-      if (!targetCat) return;
-      if (!Array.isArray(selectedIds) || selectedIds.length === 0) return;
-
-      for (const id of selectedIds) {
-        const it = state.items.find(x => x.id === id);
-        if (it) it.category = targetCat;
-      }
-      if (!state.categories.includes(targetCat)) state.categories.push(targetCat);
-
-      saveState();
-      renderAll();
-      const el = document.getElementById("moveStatus");
-      el.textContent = `Moved ${selectedIds.length} item(s) ✅`;
-      setTimeout(() => el.textContent = "", 2500);
-    }
-
-    function setTab(tab) {
-      state.activeTab = tab;
-      document.querySelectorAll(".tabPanel").forEach(p => p.classList.add("hidden"));
-      document.getElementById("tab-" + tab).classList.remove("hidden");
-
-      document.querySelectorAll(".tabBtn").forEach(b => {
-        b.classList.remove("bg-indigo-600/80","chip-active");
-        b.classList.add("bg-slate-800");
-        if (b.dataset.tab === tab) {
-          b.classList.remove("bg-slate-800");
-          b.classList.add("bg-indigo-600/80","chip-active");
+      // ✅ Copy ONLY Item Code
+      const codeText = String(it.code||"").trim();
+      if(codeText){
+        try{
+          if(navigator.clipboard && navigator.clipboard.writeText){
+            navigator.clipboard.writeText(codeText);
+          }else{
+            const ta=document.createElement("textarea");
+            ta.value=codeText;
+            ta.setAttribute("readonly","");
+            ta.style.position="fixed";
+            ta.style.left="-9999px";
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand("copy");
+            ta.remove();
+          }
+        }catch(e){
+          // If clipboard blocked by browser permissions, we still proceed with qty -1
         }
-      });
+      }
 
+      // ✅ Deduct qty (-1) after copy
+      it.qty=clampQty(it.qty-1);
+
+      const existing=state.clipboard.find(x=>x.id===id);
+      if(existing) existing.qtyCopied+=1;
+      else state.clipboard.push({id:it.id,code:it.code,name:it.name,batch:it.batch||"",expiry:it.expiry||"",category:it.category,qtyCopied:1});
+
+      state.history.push({type:"copy",id:it.id,delta:1,ts:Date.now()});
+      saveState(); renderAll(); flashUndo("Copied ✅ (Item Code) • qty -1");
+    }
+
+
+    function undoLastCopy(){
+      let last=-1; for(let i=state.history.length-1;i>=0;i--) if(state.history[i].type==="copy"){ last=i; break; }
+      if(last===-1) return flashUndo("Nothing to undo.");
+      const act=state.history.splice(last,1)[0];
+      const it=state.items.find(x=>x.id===act.id); if(it) it.qty=clampQty(it.qty+act.delta);
+      const clip=state.clipboard.find(x=>x.id===act.id);
+      if(clip){ clip.qtyCopied-=act.delta; if(clip.qtyCopied<=0) state.clipboard=state.clipboard.filter(x=>x.id!==act.id); }
+      saveState(); renderAll(); flashUndo("Undo ✅ (qty +1)");
+    }
+
+    function clearClipboard(){ if(!confirm("Clear the copy list? (Stock remains deducted.)")) return; state.clipboard=[]; saveState(); renderAll(); }
+    function removeClipItem(id){ state.clipboard=state.clipboard.filter(x=>x.id!==id); saveState(); renderAll(); }
+
+    function addCategory(name){ name=(name||"").trim(); if(!name) return; if(state.categories.includes(name)) return alert("Category already exists."); state.categories.push(name); saveState(); renderAll(); }
+    function renameCategory(oldName,newName){
+      newName=(newName||"").trim(); if(!newName) return; if(oldName===newName) return;
+      if(state.categories.includes(newName)) return alert("This category name already exists.");
+      state.categories=state.categories.map(c=>c===oldName?newName:c);
+      for(const it of state.items) if(it.category===oldName) it.category=newName;
+      for(const c of state.clipboard) if(c.category===oldName) c.category=newName;
+      if(state.activeCategory===oldName) state.activeCategory=newName;
+      saveState(); renderAll();
+    }
+    function deleteCategory(cat){
+      if(cat==="Uncategorized") return alert("Uncategorized cannot be deleted.");
+      if(!confirm(`Delete category "${cat}"? Items will move to "Uncategorized".`)) return;
+      state.categories=state.categories.filter(c=>c!==cat);
+      for(const it of state.items) if(it.category===cat) it.category="Uncategorized";
+      for(const c of state.clipboard) if(c.category===cat) c.category="Uncategorized";
+      if(state.activeCategory===cat) state.activeCategory="__ALL__";
+      saveState(); renderAll();
+    }
+
+    function moveSelectedItems(targetCat, ids){
+      if(!targetCat) return; if(!Array.isArray(ids)||ids.length===0) return;
+      for(const id of ids){ const it=state.items.find(x=>x.id===id); if(it) it.category=targetCat; }
+      if(!state.categories.includes(targetCat)) state.categories.push(targetCat);
+      saveState(); renderAll();
+      const el=document.getElementById("moveStatus"); el.textContent=`Moved ${ids.length} item(s) ✅`; setTimeout(()=>el.textContent="",2500);
+    }
+
+    function exportBackupJson(){
+      const blob=new Blob([JSON.stringify({exportedAt:new Date().toISOString(),items:state.items,categories:state.categories,clipboard:state.clipboard,history:state.history},null,2)],{type:"application/json"});
+      const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="icu_encoding_backup.json";
+      document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },500);
+    }
+    async function restoreBackupJson(file){
+      const text=await file.text(); const obj=JSON.parse(text);
+      if(!obj||!Array.isArray(obj.items)) throw new Error("Invalid JSON backup.");
+      state.items=obj.items; state.categories=Array.isArray(obj.categories)?obj.categories:[]; state.clipboard=Array.isArray(obj.clipboard)?obj.clipboard:[]; state.history=Array.isArray(obj.history)?obj.history:[];
+      normalizeCategories(); saveState(); renderAll(); showEmptyIfNeeded();
+    }
+
+    function exportZeroExcel(){
+      const zeros=state.items
+        .filter(it=>Number(it.qty)===0)
+        .map(it=>[it.code, it.batch||"", it.expiry||"", it.name]);
+      exportExcelOrCsv("zero_stock", ["Item Code","Batch Number","Expiry Date","Item Name"], zeros);
+    }
+
+    function exportFavExcel(){
+      const favs=state.items
+        .filter(it=>it.fav)
+        .map(it=>[it.code, it.batch||"", it.expiry||"", it.name, it.category, it.qty]);
+      exportExcelOrCsv("favorites", ["Code","Batch","Expiry","Item","Category","Qty"], favs);
+    }
+
+    function exportClipboardExcel(){
+      const rows=state.clipboard.map(c=>[c.code, c.batch||"", c.expiry||"", c.name, c.category, c.qtyCopied]);
+      exportExcelOrCsv("copy_list", ["Code","Batch","Expiry","Item","Category","QtyCopied"], rows);
+    }
+
+    function exportZeroCsv(){
+      const zeros=state.items
+        .filter(it=>Number(it.qty)===0)
+        .map(it=>[it.code, it.batch||"", it.expiry||"", it.name]);
+      downloadCsv("zero_stock.csv", [["Item Code","Batch Number","Expiry Date","Item Name"], ...zeros]);
+    }
+
+    function exportZeroPdf(){
+      const zeros=state.items
+        .filter(it=>Number(it.qty)===0)
+        .slice()
+        .sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+      const rows = zeros.map(it=>`<tr><td>${escapeHtml(it.code||"")}</td><td>${escapeHtml(it.batch||"")}</td><td>${escapeHtml(it.expiry||"")}</td><td>${escapeHtml(it.name||"")}</td></tr>`).join("");
+
+      const html = `<!doctype html>
+<html><head><meta charset="utf-8"/>
+<title>Zero Stock</title>
+<style>
+  body{font-family: Arial, sans-serif; margin: 18px;}
+  h1{font-size: 18px; margin: 0 0 6px;}
+  .sub{color:#555; font-size: 12px; margin:0 0 12px;}
+  table{width:100%; border-collapse:collapse; font-size:12px;}
+  th,td{border:1px solid #ccc; padding:6px; text-align:left;}
+  th{background:#f3f3f3;}
+</style>
+</head>
+<body>
+  <h1>ICU Encoding Dashboard — Zero Stock</h1>
+  <div class="sub">Generated: ${new Date().toLocaleString()}</div>
+  <table>
+    <thead><tr><th>Item Code</th><th>Batch Number</th><th>Expiry Date</th><th>Item Name</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+
+  <footer class="appFooter">
+    ✨ Designed with care by Mr.Mohamed Ali Ghonim – ICU Head Nurse ✨
+  </footer>
+
+</body></html>`;
+
+      const w=window.open("","_blank");
+      if(!w) return alert("Popup blocked. Please allow popups to export PDF.");
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
+      w.focus();
+      w.print();
+    }
+
+    function exportFavCsv(){
+      const favs=state.items.filter(it=>it.fav).map(it=>[it.code, it.batch||"", it.expiry||"", it.name, it.category, it.qty]);
+      downloadCsv("favorites.csv", [["Code","Batch","Expiry","Item","Category","Qty"], ...favs]);
+    }
+    function exportClipboardCsv(){
+      const rows=state.clipboard.map(c=>[c.code, c.batch||"", c.expiry||"", c.name, c.category, c.qtyCopied]);
+      downloadCsv("copy_list.csv", [["Code","Batch","Expiry","Item","Category","QtyCopied"], ...rows]);
+    }
+
+    function printTable(title, subtitle, tableId){
+      const printArea=document.querySelector(".print-area");
+      const host=document.getElementById("printTableHost");
+      const src=document.getElementById(tableId);
+      document.getElementById("printTitle").textContent=title||"ICU Encoding Dashboard";
+      document.getElementById("printSub").textContent=subtitle||new Date().toLocaleString();
+      const clone=src.cloneNode(true);
+      clone.querySelectorAll(".no-print").forEach(el=>el.remove());
+      host.innerHTML=""; host.appendChild(clone);
+      printArea.classList.remove("hidden");
+      window.print();
+      printArea.classList.add("hidden");
+      host.innerHTML="";
+    }
+
+    function setTab(tab){
+      state.activeTab=tab;
+      document.querySelectorAll(".tabPanel").forEach(p=>p.classList.add("hidden"));
+      document.getElementById("tab-"+tab).classList.remove("hidden");
+      document.querySelectorAll(".tabBtn").forEach(b=>{
+        b.classList.remove("bg-indigo-600/80","chip-active"); b.classList.add("bg-slate-800");
+        if(b.dataset.tab===tab){ b.classList.remove("bg-slate-800"); b.classList.add("bg-indigo-600/80","chip-active"); }
+      });
       renderAll();
     }
 
-    function showEmptyIfNeeded() {
-      const empty = state.items.length === 0;
-      document.getElementById("emptyState").classList.toggle("hidden", !empty);
-      document.querySelectorAll(".tabPanel").forEach(p => p.classList.toggle("hidden", empty));
-      if (empty) return;
-      setTab(state.activeTab || "dashboard");
+    function showEmptyIfNeeded(){
+      const empty=state.items.length===0;
+      document.getElementById("emptyState").classList.toggle("hidden",!empty);
+      document.querySelectorAll(".tabPanel").forEach(p=>p.classList.toggle("hidden",empty));
+      if(empty) return;
+      setTab(state.activeTab||"dashboard");
     }
 
-    function renderCategoryChips() {
-      const wrap = document.getElementById("catChips");
-      wrap.innerHTML = "";
+    function renderCategoryCards() {
+  const wrap = document.getElementById("catCards");
+  if (!wrap) return;
+  wrap.innerHTML = "";
 
-      for (const cat of state.categories) {
-        const btn = document.createElement("button");
-        btn.className = "catChip chip bg-slate-800 hover:bg-slate-700";
-        btn.dataset.cat = cat;
-        btn.textContent = `${stickerFor(cat)} ${cat}`;
-        if (state.activeCategory === cat) btn.classList.add("chip-active","bg-indigo-600/60");
-        btn.onclick = () => { state.activeCategory = cat; renderAll(); };
-        wrap.appendChild(btn);
-      }
+  const counts = new Map();
+  const zeroCounts = new Map();
 
-      document.querySelectorAll(".catChip").forEach(b => {
-        if (b.dataset.cat === "__ALL__") {
-          b.classList.toggle("chip-active", state.activeCategory === "__ALL__");
-          b.classList.toggle("bg-indigo-600/80", state.activeCategory === "__ALL__");
-          b.classList.toggle("bg-slate-800", state.activeCategory !== "__ALL__");
-        }
-      });
-    }
+  for (const it of state.items) {
+    const c = it.category || "Uncategorized";
+    counts.set(c, (counts.get(c) || 0) + 1);
+    if (Number(it.qty) === 0) zeroCounts.set(c, (zeroCounts.get(c) || 0) + 1);
+  }
 
-    function filteredItemsForDashboard() {
-      const q = (state.search || "").trim().toLowerCase();
-      const byCat = state.activeCategory;
+  const total = state.items.length;
+  const totalZero = state.items.reduce((a, it) => a + (Number(it.qty) === 0 ? 1 : 0), 0);
 
-      return state.items.filter(it => {
-        if (byCat !== "__ALL__" && it.category !== byCat) return false;
-        if (!q) return true;
-        const hay = ((it.code || "") + " " + (it.name || "") + " " + (it.category || "")).toLowerCase();
+  const makeCard = (catKey, label, count, zeroCount) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+
+    const active = state.activeCategory === catKey;
+    const theme = catTheme(label);
+
+    btn.className = `catCard text-left p-3 bg-gradient-to-br ${theme} hover:brightness-110`;
+    if (active) btn.classList.add("catCardActive");
+
+    btn.onclick = () => { state.activeCategory = catKey; renderAll(); };
+
+    const sticker = (catKey === "__ALL__") ? "🗂️" : (stickerFor(label) || "🏷️");
+    const title = (catKey === "__ALL__") ? "All Items" : label;
+
+    btn.innerHTML = `
+      <div class="flex items-start justify-between gap-2">
+        <div class="min-w-0">
+          <div class="text-base font-extrabold truncate"><span class="catSticker">${sticker}</span>${escapeHtml(title)}</div>
+          <div class="text-sm text-slate-200/90 mt-1">${count} item(s)</div>
+        </div>
+        <div class="text-right">
+          <div class="text-2xl font-black">${count}</div>
+          <div class="text-xs text-slate-200/80">${zeroCount ? `⭕ ${zeroCount} zero` : `&nbsp;`}</div>
+        </div>
+      </div>
+    `;
+    return btn;
+  };
+
+  wrap.appendChild(makeCard("__ALL__", "All Items", total, totalZero));
+  for (const cat of state.categories) {
+    wrap.appendChild(makeCard(cat, cat, counts.get(cat) || 0, zeroCounts.get(cat) || 0));
+  }
+}
+
+    function filteredItemsForDashboard(){
+      const q=(state.search||"").trim().toLowerCase();
+      const byCat=state.activeCategory;
+      return state.items.filter(it=>{
+        if(byCat!=="__ALL__" && it.category!==byCat) return false;
+        if(!q) return true;
+        const hay=((it.code||"")+" "+(it.name||"")+" "+(it.category||"")).toLowerCase();
         return hay.includes(q);
       });
     }
 
-    function renderDashboard() {
-      renderCategoryChips();
+    function escapeHtml(s){ return String(s||"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;"); }
+    function normalizeCodeString(v){
+      let s=String(v??"").trim();
+      if(!s) return "";
+      // Convert scientific notation (e.g., 2.0111E+13) to full number using BigInt (no precision loss)
+      const m=s.match(/^(\d+(?:\.\d+)?)[eE]\+?(\d+)$/);
+      if(m){
+        // If Item Code comes as a rounded scientific string (e.g., 2.0155E+13),
+        // the missing digits cannot be reconstructed. Warn once so user formats the column as Text in Excel.
+        if(!warnedSciCode){
+          const sigCount=(m[1].replace(".","").replace(/^0+/,"")).length;
+          if(sigCount<=6){
+            alert("Item Code is in scientific notation (e.g., 2.0155E+13). If Excel rounded it, the true digits are lost. Please format the 'Item Code' column as Text (or prefix with '), then save/export and upload again.");
+            warnedSciCode=true;
+          }
+        }
+      const mant=m[1];
+        const exp=parseInt(m[2],10);
+        const parts=mant.split(".");
+        const intPart=parts[0];
+        const frac=parts[1]||"";
+        const digits=intPart + frac;
+        const scale=frac.length;
+        const zeros=exp - scale;
+        try{
+          if(zeros>=0){
+            return (BigInt(digits) * (10n ** BigInt(zeros))).toString();
+          }else{
+            // Keep as plain decimal (rare for item codes). Avoid scientific.
+            const pos=digits.length + zeros;
+            if(pos<=0) return "0." + "0".repeat(-pos) + digits;
+            return digits.slice(0,pos) + "." + digits.slice(pos);
+          }
+        }catch(e){
+          return s;
+        }
+      }
+      // Remove trailing .0 for numeric-looking strings
+      if(/^\d+\.0+$/.test(s)) s=s.replace(/\.0+$/,"");
+      return s;
+    }
 
-      const list = filteredItemsForDashboard();
-      document.getElementById("dashTitle").textContent = (state.activeCategory === "__ALL__") ? "All Items" : `${stickerFor(state.activeCategory)} ${state.activeCategory}`;
-      document.getElementById("dashSubtitle").textContent = `${list.length} item(s)`;
+    function asNumericCode(code){
+      // Keep codes as strings (avoid scientific notation)
+      return normalizeCodeString(code);
+    }
 
-      const tb = document.getElementById("itemsTbody");
-      tb.innerHTML = "";
+    function renderDashboard(){
+      renderCategoryCards();
+      const list=filteredItemsForDashboard();
+      document.getElementById("dashTitle").textContent=(state.activeCategory==="__ALL__") ? "All Items" : displayCat(state.activeCategory);
+      document.getElementById("dashSubtitle").textContent=`${list.length} item(s)`;
 
-      list.sort((a,b) => (b.fav===true)-(a.fav===true) || (a.name||"").localeCompare(b.name||""));
+      const tb=document.getElementById("itemsTbody");
+      tb.innerHTML="";
+      list.sort((a,b)=>(b.fav===true)-(a.fav===true) || (a.name||"").localeCompare(b.name||""));
 
-      for (const it of list) {
-        const tr = document.createElement("tr");
-        tr.className = "border-t border-white/5 hover:bg-white/5";
+      for(const it of list){
+        const tr=document.createElement("tr");
+        tr.className="border-t border-white/5 hover:bg-white/5";
 
-        const favTd = document.createElement("td");
-        favTd.className = "p-2";
-        favTd.innerHTML = `<button class="text-lg" title="Favorite">${it.fav ? "⭐" : "☆"}</button>`;
-        favTd.querySelector("button").onclick = () => toggleFav(it.id);
+        const favTd=document.createElement("td");
+        favTd.className="p-2 no-print";
+        favTd.innerHTML=`<button class="text-lg" title="Favorite">${it.fav?"⭐":"☆"}</button>`;
+        favTd.querySelector("button").onclick=()=>toggleFav(it.id);
 
-        const codeTd = document.createElement("td");
-        codeTd.className = "p-2 text-slate-200 font-mono";
-        codeTd.textContent = it.code || "";
+        const codeTd=document.createElement("td");
+        codeTd.className="p-2 text-slate-200 mono";
+        codeTd.textContent=asNumericCode(it.code);
 
-        const nameTd = document.createElement("td");
-        nameTd.className = "p-2";
-        nameTd.textContent = it.name || "";
+        const batchTd=document.createElement("td");
+        batchTd.className="p-2 text-slate-200 mono";
+        batchTd.textContent=it.batch||"";
 
-        const catTd = document.createElement("td");
-        catTd.className = "p-2 text-slate-300";
-        catTd.textContent = `${stickerFor(it.category)} ${it.category}`;
+        const expTd=document.createElement("td");
+        expTd.className="p-2 text-slate-200 mono";
+        expTd.textContent=it.expiry||"";
 
-        const qtyTd = document.createElement("td");
-        qtyTd.className = "p-2 text-right font-bold";
-        qtyTd.textContent = String(it.qty);
+        const nameTd=document.createElement("td");
+        nameTd.className="p-2";
+        nameTd.innerHTML=`<div class="font-semibold">${escapeHtml(it.name||"")}</div><div class="text-xs text-slate-400 mt-0.5">${escapeHtml(displayCat(it.category))}</div>`;
 
-        const actTd = document.createElement("td");
-        actTd.className = "p-2 text-right";
-        actTd.innerHTML = `
-          <button class="px-3 py-1.5 rounded-xl font-semibold ${it.qty>0 ? "bg-indigo-600 hover:bg-indigo-500" : "bg-slate-700 cursor-not-allowed"}">
-            Copy (-1)
-          </button>
-        `;
-        const btn = actTd.querySelector("button");
-        btn.disabled = it.qty <= 0;
-        btn.onclick = () => doCopyOne(it.id);
+        const qtyTd=document.createElement("td");
+        qtyTd.className="p-2 text-right font-bold";
+        qtyTd.textContent=String(it.qty);
 
-        tr.appendChild(favTd);
-        tr.appendChild(codeTd);
-        tr.appendChild(nameTd);
-        tr.appendChild(catTd);
-        tr.appendChild(qtyTd);
-        tr.appendChild(actTd);
+        const actTd=document.createElement("td");
+        actTd.className="p-2 text-right no-print";
+        actTd.innerHTML=`<button class="px-3 py-1.5 rounded-xl font-semibold ${it.qty>0?"bg-indigo-600 hover:bg-indigo-500":"bg-slate-700 cursor-not-allowed"}">Copy</button>`;
+        const btn=actTd.querySelector("button");
+        btn.disabled=it.qty<=0;
+        btn.onclick=()=>doCopyOne(it.id);
 
+        tr.appendChild(favTd); tr.appendChild(actTd); tr.appendChild(qtyTd); tr.appendChild(codeTd); tr.appendChild(nameTd); tr.appendChild(batchTd); tr.appendChild(expTd);
         tb.appendChild(tr);
       }
     }
 
-    function renderManage() {
-      const sel = document.getElementById("moveTargetCat");
-      sel.innerHTML = "";
-      for (const cat of state.categories) {
-        const opt = document.createElement("option");
-        opt.value = cat;
-        opt.textContent = `${stickerFor(cat)} ${cat}`;
+    function renderManage(){
+      const sel=document.getElementById("moveTargetCat");
+      sel.innerHTML="";
+      for(const cat of state.categories){
+        const opt=document.createElement("option");
+        opt.value=cat;
+        opt.textContent=displayCat(cat);
         sel.appendChild(opt);
       }
 
-      const list = document.getElementById("catList");
-      list.innerHTML = "";
-
-      for (const cat of state.categories) {
-        const row = document.createElement("div");
-        row.className = "p-2 rounded-xl bg-white/5 border border-white/10 flex items-center gap-2";
-
-        row.innerHTML = `
-          <div class="w-8 h-8 rounded-xl bg-slate-900/60 border border-white/10 grid place-items-center">${stickerFor(cat)}</div>
+      const list=document.getElementById("catList");
+      list.innerHTML="";
+      for(const cat of state.categories){
+        const row=document.createElement("div");
+        row.className="p-2 rounded-xl bg-white/5 border border-white/10 flex items-center gap-2";
+        row.innerHTML=`
+          <div class="w-8 h-8 rounded-xl bg-slate-900/60 border border-white/10 grid place-items-center">${stickerFor(cat)||"🏷️"}</div>
           <input class="flex-1 px-2 py-1 rounded-lg bg-slate-900/60 border border-white/10 focus:outline-none focus:ring-2 focus:ring-indigo-500" value="${escapeHtml(cat)}"/>
           <button class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm font-semibold">Save</button>
-          <button class="px-2 py-1 rounded-lg bg-rose-600/70 hover:bg-rose-600 text-sm font-semibold ${cat==="Uncategorized" ? "opacity-40 cursor-not-allowed" : ""}">Delete</button>
+          <button class="px-2 py-1 rounded-lg bg-rose-600/70 hover:bg-rose-600 text-sm font-semibold ${cat==="Uncategorized"?"opacity-40 cursor-not-allowed":""}">Delete</button>
         `;
-
-        const inp = row.querySelector("input");
-        const saveBtn = row.querySelectorAll("button")[0];
-        const delBtn = row.querySelectorAll("button")[1];
-
-        saveBtn.onclick = () => renameCategory(cat, inp.value);
-        delBtn.onclick = () => { if (cat !== "Uncategorized") deleteCategory(cat); };
-
+        const inp=row.querySelector("input");
+        const saveBtn=row.querySelectorAll("button")[0];
+        const delBtn=row.querySelectorAll("button")[1];
+        saveBtn.onclick=()=>renameCategory(cat, inp.value);
+        delBtn.onclick=()=>{ if(cat!=="Uncategorized") deleteCategory(cat); };
         list.appendChild(row);
       }
 
-      const q = (state.manageSearch || "").trim().toLowerCase();
-      const tbody = document.getElementById("manageTbody");
-      tbody.innerHTML = "";
+      const q=(state.manageSearch||"").trim().toLowerCase();
+      const tbody=document.getElementById("manageTbody");
+      tbody.innerHTML="";
+      const items=state.items.filter(it=>{
+        if(!q) return true;
+        const hay=((it.code||"")+" "+(it.name||"")+" "+(it.category||"")).toLowerCase();
+        return hay.includes(q);
+      }).sort((a,b)=>(a.category||"").localeCompare(b.category||"") || (a.name||"").localeCompare(b.name||""));
 
-      const items = state.items
-        .filter(it => {
-          if (!q) return true;
-          const hay = ((it.code||"") + " " + (it.name||"") + " " + (it.category||"")).toLowerCase();
-          return hay.includes(q);
-        })
-        .sort((a,b) => (a.category||"").localeCompare(b.category||"") || (a.name||"").localeCompare(b.name||""));
-
-      for (const it of items) {
-        const tr = document.createElement("tr");
-        tr.className = "border-t border-white/5 hover:bg-white/5";
-
-        tr.innerHTML = `
-          <td class="p-2"><input type="checkbox" class="selBox w-4 h-4 accent-indigo-500" data-id="${it.id}"></td>
-          <td class="p-2 font-mono">${escapeHtml(it.code||"")}</td>
+      for(const it of items){
+        const tr=document.createElement("tr");
+        tr.className="border-t border-white/5 hover:bg-white/5";
+        tr.innerHTML=`
+          <td class="p-2 no-print"><input type="checkbox" class="selBox w-4 h-4 accent-indigo-500" data-id="${it.id}"></td>
+          <td class="p-2 mono">${escapeHtml(asNumericCode(it.code))}</td>
+          <td class="p-2 mono">${escapeHtml(it.batch||"")}</td>
+          <td class="p-2 mono">${escapeHtml(it.expiry||"")}</td>
           <td class="p-2">${escapeHtml(it.name||"")}</td>
-          <td class="p-2 text-slate-300">${escapeHtml(stickerFor(it.category) + " " + it.category)}</td>
+          <td class="p-2 text-slate-300">${escapeHtml(displayCat(it.category))}</td>
           <td class="p-2 text-right font-bold">${it.qty}</td>
         `;
         tbody.appendChild(tr);
       }
     }
 
-    function renderZeroStock() {
-      const tbody = document.getElementById("zeroTbody");
-      tbody.innerHTML = "";
-      const zeros = state.items.filter(it => Number(it.qty) === 0)
-        .sort((a,b) => (a.category||"").localeCompare(b.category||"") || (a.name||"").localeCompare(b.name||""));
-
-      for (const it of zeros) {
-        const tr = document.createElement("tr");
-        tr.className = "border-t border-white/5";
-        tr.innerHTML = `
-          <td class="p-2 font-mono">${escapeHtml(it.code||"")}</td>
+    function renderZeroStock(){
+      const tbody=document.getElementById("zeroTbody");
+      tbody.innerHTML="";
+      const zeros=state.items.filter(it=>Number(it.qty)===0).sort((a,b)=>(a.category||"").localeCompare(b.category||"") || (a.name||"").localeCompare(b.name||""));
+      for(const it of zeros){
+        const tr=document.createElement("tr");
+        tr.className="border-t border-white/5";
+        tr.innerHTML=`
+          <td class="p-2 mono">${escapeHtml(asNumericCode(it.code))}</td>
+          <td class="p-2 mono">${escapeHtml(it.batch||"")}</td>
+          <td class="p-2 mono">${escapeHtml(it.expiry||"")}</td>
           <td class="p-2">${escapeHtml(it.name||"")}</td>
-          <td class="p-2 text-slate-300">${escapeHtml(stickerFor(it.category) + " " + it.category)}</td>
+          <td class="p-2 text-slate-300">${escapeHtml(displayCat(it.category))}</td>
           <td class="p-2 text-right font-bold">0</td>
         `;
         tbody.appendChild(tr);
       }
     }
 
-    function renderFavorites() {
-      const tbody = document.getElementById("favTbody");
-      tbody.innerHTML = "";
-      const favs = state.items.filter(it => it.fav)
-        .sort((a,b) => (a.category||"").localeCompare(b.category||"") || (a.name||"").localeCompare(b.name||""));
-
-      for (const it of favs) {
-        const tr = document.createElement("tr");
-        tr.className = "border-t border-white/5 hover:bg-white/5";
-        tr.innerHTML = `
-          <td class="p-2 font-mono">${escapeHtml(it.code||"")}</td>
+    function renderFavorites(){
+      const tbody=document.getElementById("favTbody");
+      tbody.innerHTML="";
+      const favs=state.items.filter(it=>it.fav).sort((a,b)=>(a.category||"").localeCompare(b.category||"") || (a.name||"").localeCompare(b.name||""));
+      for(const it of favs){
+        const tr=document.createElement("tr");
+        tr.className="border-t border-white/5 hover:bg-white/5";
+        tr.innerHTML=`
+          <td class="p-2 mono">${escapeHtml(asNumericCode(it.code))}</td>
+          <td class="p-2 mono">${escapeHtml(it.batch||"")}</td>
+          <td class="p-2 mono">${escapeHtml(it.expiry||"")}</td>
           <td class="p-2">${escapeHtml(it.name||"")}</td>
-          <td class="p-2 text-slate-300">${escapeHtml(stickerFor(it.category) + " " + it.category)}</td>
+          <td class="p-2 text-slate-300">${escapeHtml(displayCat(it.category))}</td>
           <td class="p-2 text-right font-bold">${it.qty}</td>
-          <td class="p-2 text-right">
-            <button class="px-3 py-1.5 rounded-xl font-semibold ${it.qty>0 ? "bg-indigo-600 hover:bg-indigo-500" : "bg-slate-700 cursor-not-allowed"}">Copy (-1)</button>
+          <td class="p-2 text-right no-print">
+            <button class="px-3 py-1.5 rounded-xl font-semibold ${it.qty>0?"bg-indigo-600 hover:bg-indigo-500":"bg-slate-700 cursor-not-allowed"}">Copy</button>
           </td>
         `;
-        const btn = tr.querySelector("button");
-        btn.disabled = it.qty <= 0;
-        btn.onclick = () => doCopyOne(it.id);
+        const btn=tr.querySelector("button");
+        btn.disabled=it.qty<=0;
+        btn.onclick=()=>doCopyOne(it.id);
         tbody.appendChild(tr);
       }
     }
 
-    function renderClipboard() {
-      const tbody = document.getElementById("clipTbody");
-      tbody.innerHTML = "";
-
-      const list = state.clipboard.slice().sort((a,b) => (a.category||"").localeCompare(b.category||"") || (a.name||"").localeCompare(b.name||""));
-
-      for (const c of list) {
-        const tr = document.createElement("tr");
-        tr.className = "border-t border-white/5 hover:bg-white/5";
-        tr.innerHTML = `
-          <td class="p-2 font-mono">${escapeHtml(c.code||"")}</td>
+    function renderClipboard(){
+      const tbody=document.getElementById("clipTbody");
+      tbody.innerHTML="";
+      const list=state.clipboard.slice().sort((a,b)=>(a.category||"").localeCompare(b.category||"") || (a.name||"").localeCompare(b.name||""));
+      for(const c of list){
+        const tr=document.createElement("tr");
+        tr.className="border-t border-white/5 hover:bg-white/5";
+        tr.innerHTML=`
+          <td class="p-2 mono">${escapeHtml(asNumericCode(c.code))}</td>
+          <td class="p-2 mono">${escapeHtml(c.batch||"")}</td>
+          <td class="p-2 mono">${escapeHtml(c.expiry||"")}</td>
           <td class="p-2">${escapeHtml(c.name||"")}</td>
-          <td class="p-2 text-slate-300">${escapeHtml(stickerFor(c.category) + " " + c.category)}</td>
+          <td class="p-2 text-slate-300">${escapeHtml(displayCat(c.category))}</td>
           <td class="p-2 text-right font-bold">${c.qtyCopied}</td>
-          <td class="p-2 text-right">
+          <td class="p-2 text-right no-print">
             <button class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 font-semibold">Remove</button>
           </td>
         `;
-        tr.querySelector("button").onclick = () => removeClipItem(c.id);
+        tr.querySelector("button").onclick=()=>removeClipItem(c.id);
         tbody.appendChild(tr);
       }
     }
 
-    function renderAll() {
-      if (state.items.length === 0) return;
-
-      if (state.activeTab === "dashboard") renderDashboard();
-      if (state.activeTab === "manage") renderManage();
-      if (state.activeTab === "zero") renderZeroStock();
-      if (state.activeTab === "favorites") renderFavorites();
-      if (state.activeTab === "clipboard") renderClipboard();
-
-      document.getElementById("searchAll").value = state.search || "";
-      document.getElementById("manageSearch").value = state.manageSearch || "";
+    function renderAll(){
+      if(state.items.length===0) return;
+      if(state.activeTab==="dashboard") renderDashboard();
+      if(state.activeTab==="manage") renderManage();
+      if(state.activeTab==="zero") renderZeroStock();
+      if(state.activeTab==="favorites") renderFavorites();
+      if(state.activeTab==="clipboard") renderClipboard();
+      document.getElementById("searchAll").value=state.search||"";
+      document.getElementById("manageSearch").value=state.manageSearch||"";
     }
 
-    function escapeHtml(s) {
-      return String(s||"")
-        .replaceAll("&","&amp;")
-        .replaceAll("<","&lt;")
-        .replaceAll(">","&gt;")
-        .replaceAll('"',"&quot;")
-        .replaceAll("'","&#039;");
+    function flashUndo(msg){
+      const a=document.getElementById("undoStatus");
+      a.textContent=msg;
+      setTimeout(()=>a.textContent="",2200);
     }
 
-    function flashUndo(msg) {
-      const a = document.getElementById("undoStatus");
-      a.textContent = msg;
-      setTimeout(() => a.textContent = "", 2200);
+    async function handleFile(file){
+      const name=(file.name||"").toLowerCase();
+      if(name.endsWith(".csv")) return importCsvFile(file);
+      if(name.endsWith(".xlsx")||name.endsWith(".xls")) return importExcelFile(file);
+      throw new Error("Unsupported file type. Please upload .csv, .xls, or .xlsx");
     }
 
-    function exportZeroToXlsx() {
-      const zeros = state.items.filter(it => Number(it.qty) === 0)
-        .map(it => ({ Code: it.code, Item: it.name, Category: it.category, Qty: it.qty }));
-      exportXlsx(zeros.length ? zeros : [{Code:"",Item:"",Category:"",Qty:""}], "zero_stock.xlsx");
-    }
+    function wire(){
+      const fileInput=document.getElementById("fileInput");
+      const openFile=()=>fileInput.click();
+      document.getElementById("btnUpload").onclick=openFile;
+      document.getElementById("btnUpload2").onclick=openFile;
 
-    function exportFavToXlsx() {
-      const favs = state.items.filter(it => it.fav)
-        .map(it => ({ Code: it.code, Item: it.name, Category: it.category, Qty: it.qty }));
-      exportXlsx(favs.length ? favs : [{Code:"",Item:"",Category:"",Qty:""}], "favorites.xlsx");
-    }
+      // Contact modal
+      const contactModal=document.getElementById("contactModal");
+      const openContact=()=>{ contactModal.classList.remove("hidden"); };
+      const closeContact=()=>{ contactModal.classList.add("hidden"); };
+      const btnContact=document.getElementById("btnContact");
+      if(btnContact) btnContact.onclick=openContact;
+      const contactClose=document.getElementById("contactClose");
+      if(contactClose) contactClose.onclick=closeContact;
+      // close when clicking backdrop
+      if(contactModal){
+        contactModal.addEventListener("click",(ev)=>{ if(ev.target===contactModal) closeContact(); });
+      }
+      // close by ESC
+      window.addEventListener("keydown",(ev)=>{ if(ev.key==="Escape" && contactModal && !contactModal.classList.contains("hidden")) closeContact(); });
 
-    function exportClipboardToXlsx() {
-      const rows = state.clipboard.map(c => ({ Code: c.code, Item: c.name, Category: c.category, QtyCopied: c.qtyCopied }));
-      exportXlsx(rows.length ? rows : [{Code:"",Item:"",Category:"",QtyCopied:""}], "copy_list.xlsx");
-    }
-
-    function exportBackupJson() {
-      const blob = new Blob([JSON.stringify({
-        exportedAt: new Date().toISOString(),
-        items: state.items,
-        categories: state.categories,
-        clipboard: state.clipboard,
-        history: state.history
-      }, null, 2)], {type:"application/json"});
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = "icu_encoding_backup.json";
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
-    }
-
-    async function restoreBackupJson(file) {
-      const text = await file.text();
-      const obj = JSON.parse(text);
-      if (!obj || !Array.isArray(obj.items)) throw new Error("Invalid JSON backup.");
-      state.items = obj.items;
-      state.categories = Array.isArray(obj.categories) ? obj.categories : [];
-      state.clipboard = Array.isArray(obj.clipboard) ? obj.clipboard : [];
-      state.history = Array.isArray(obj.history) ? obj.history : [];
-      normalizeCategories();
-      saveState();
-      renderAll();
-      showEmptyIfNeeded();
-    }
-
-    function wire() {
-      const fileInput = document.getElementById("fileInput");
-
-      const openFile = async () => {
-        await ensureXlsxLoaded(); // load before choosing, so it's ready
-        fileInput.click();
-      };
-
-      document.getElementById("btnUpload").onclick = openFile;
-      document.getElementById("btnUpload2").onclick = openFile;
-
-      fileInput.addEventListener("change", async (e) => {
-        const file = e.target.files && e.target.files[0];
-        if (!file) return;
-        try {
-          const ok = await ensureXlsxLoaded();
-          if (!ok) return alert("Excel engine could not load. Please check your network/CDN access.");
-          await importExcelFile(file);
-          alert("Stock uploaded and categorized ✅");
-        } catch (err) {
-          console.error(err);
-          alert("Upload failed: " + (err && err.message ? err.message : String(err)));
-        } finally {
-          fileInput.value = "";
-        }
+      fileInput.addEventListener("change", async (e)=>{
+        const file=e.target.files && e.target.files[0];
+        if(!file) return;
+        try{ await handleFile(file); alert("Stock uploaded and categorized ✅"); }
+        catch(err){ console.error(err); alert("Upload failed: "+(err&&err.message?err.message:String(err))); }
+        finally{ fileInput.value=""; }
       });
 
-      document.getElementById("btnReset").onclick = resetAll;
-      document.getElementById("btnLoadSample").onclick = loadDemo;
+      document.getElementById("btnReset").onclick=resetAll;
 
-      document.querySelectorAll(".tabBtn").forEach(b => {
-        b.onclick = () => setTab(b.dataset.tab);
+      document.getElementById("btnTouch").onclick=()=>{
+        state.touch = !state.touch;
+        applyTouchMode();
+      };
+      document.getElementById("btnLoadSample").onclick=loadDemo;
+
+      document.querySelectorAll(".tabBtn").forEach(b=>b.onclick=()=>setTab(b.dataset.tab));
+      document.getElementById("searchAll").addEventListener("input",(e)=>{ state.search=e.target.value||""; renderAll(); });
+      document.getElementById("manageSearch").addEventListener("input",(e)=>{ state.manageSearch=e.target.value||""; renderAll(); });
+
+      document.getElementById("btnAddCat").onclick=()=>{ addCategory(document.getElementById("newCatName").value); document.getElementById("newCatName").value=""; };
+
+      document.querySelectorAll(".emojiPick").forEach(b=>{
+        b.onclick=()=>{ const inp=document.getElementById("newCatName"); inp.value=(b.dataset.emoji||"")+" "+(inp.value||"").trim(); inp.focus(); };
       });
 
-      document.getElementById("searchAll").addEventListener("input", (e) => {
-        state.search = e.target.value || "";
-        renderAll();
-      });
-
-      document.getElementById("manageSearch").addEventListener("input", (e) => {
-        state.manageSearch = e.target.value || "";
-        renderAll();
-      });
-
-      document.getElementById("btnAddCat").onclick = () => {
-        addCategory(document.getElementById("newCatName").value);
-        document.getElementById("newCatName").value = "";
-      };
-
-      document.getElementById("btnSelectAll").onclick = () => {
-        document.querySelectorAll("#manageTbody .selBox").forEach(cb => cb.checked = true);
-      };
-      document.getElementById("btnClearSel").onclick = () => {
-        document.querySelectorAll("#manageTbody .selBox").forEach(cb => cb.checked = false);
-      };
-
-      document.getElementById("btnMoveSelected").onclick = () => {
-        const targetCat = document.getElementById("moveTargetCat").value;
-        const selected = Array.from(document.querySelectorAll("#manageTbody .selBox"))
-          .filter(cb => cb.checked)
-          .map(cb => cb.dataset.id);
+      document.getElementById("btnSelectAll").onclick=()=>document.querySelectorAll("#manageTbody .selBox").forEach(cb=>cb.checked=true);
+      document.getElementById("btnClearSel").onclick=()=>document.querySelectorAll("#manageTbody .selBox").forEach(cb=>cb.checked=false);
+      document.getElementById("btnMoveSelected").onclick=()=>{
+        const targetCat=document.getElementById("moveTargetCat").value;
+        const selected=Array.from(document.querySelectorAll("#manageTbody .selBox")).filter(cb=>cb.checked).map(cb=>cb.dataset.id);
         moveSelectedItems(targetCat, selected);
       };
 
-      document.getElementById("btnOpenClipboard").onclick = () => setTab("clipboard");
-      document.getElementById("btnUndoCopy").onclick = undoLastCopy;
-      document.getElementById("btnUndoFromClipboard").onclick = undoLastCopy;
-      document.getElementById("btnClearClipboard").onclick = clearClipboard;
+      document.getElementById("btnOpenClipboard").onclick=()=>setTab("clipboard");
+      document.getElementById("btnUndoCopy").onclick=undoLastCopy;
+      document.getElementById("btnUndoFromClipboard").onclick=undoLastCopy;
+      document.getElementById("btnClearClipboard").onclick=clearClipboard;
 
-      document.getElementById("btnExportZeroXlsx").onclick = exportZeroToXlsx;
-      document.getElementById("btnExportFavXlsx").onclick = exportFavToXlsx;
-      document.getElementById("btnExportClipboardXlsx").onclick = exportClipboardToXlsx;
+      document.getElementById("btnExportZeroCsv").onclick=exportZeroCsv;
+      document.getElementById("btnExportFavCsv").onclick=exportFavCsv;
+      document.getElementById("btnExportClipboardCsv").onclick=exportClipboardCsv;
 
-      document.getElementById("btnExportJson").onclick = exportBackupJson;
-      document.getElementById("jsonImport").addEventListener("change", async (e) => {
-        const file = e.target.files && e.target.files[0];
-        if (!file) return;
-        try {
-          await restoreBackupJson(file);
-          alert("Backup restored ✅");
-        } catch (err) {
-          alert("Restore failed: " + (err && err.message ? err.message : String(err)));
-        } finally {
-          e.target.value = "";
-        }
+      document.getElementById("btnExportZeroExcel").onclick=exportZeroExcel;
+      document.getElementById("btnExportFavExcel").onclick=exportFavExcel;
+      document.getElementById("btnExportClipboardExcel").onclick=exportClipboardExcel;
+
+      document.getElementById("btnExportJson").onclick=exportBackupJson;
+      document.getElementById("jsonImport").addEventListener("change", async (e)=>{
+        const file=e.target.files && e.target.files[0];
+        if(!file) return;
+        try{ await restoreBackupJson(file); alert("Backup restored ✅"); }
+        catch(err){ alert("Restore failed: "+(err&&err.message?err.message:String(err))); }
+        finally{ e.target.value=""; }
       });
+
+      document.getElementById("btnPrintDashboard").onclick=()=>printTable("ICU Encoding Dashboard - Items","Dashboard view","tblDashboard");
+      document.getElementById("btnPrintManage").onclick=()=>printTable("ICU Encoding Dashboard - Manage Items","Reorganize view","tblManage");
+      document.getElementById("btnPrintZero").onclick=()=>exportZeroPdf();
+      document.getElementById("btnPrintFav").onclick=()=>printTable("ICU Encoding Dashboard - Favorites","Favorites list","tblFav");
+      document.getElementById("btnPrintClipboard").onclick=()=>printTable("ICU Encoding Dashboard - Copy List","Copy list","tblClipboard");
     }
 
-    function startApp() {
-      wire();
-      const ok = loadState();
-      if (!ok) {
-        state.activeTab = "dashboard";
-        state.activeCategory = "__ALL__";
-      }
-      showEmptyIfNeeded();
-      if (state.items.length > 0) setTab("dashboard");
+    function setExcelHint(){
+      const hint=document.getElementById("excelHint");
+      if(typeof XLSX==="undefined") hint.classList.remove("hidden");
+      else hint.classList.add("hidden");
+    }
 
-      // Load XLSX in the background (best effort)
-      ensureXlsxLoaded();
+    function startApp(){
+      wire(); setExcelHint();
+      loadUiState();
+      applyTouchMode();
+      const ok=loadState();
+      if(!ok){ state.activeTab="dashboard"; state.activeCategory="__ALL__"; }
+      showEmptyIfNeeded();
+      if(state.items.length>0) setTab("dashboard");
     }
 
     document.addEventListener("DOMContentLoaded", startApp);
-  </script>
+  
+</script>
 </body>
-</html>
+</htmllet warnedSciCode=false; // warn once if Item Code is rounded in scientific notation
+>
