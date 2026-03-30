@@ -507,6 +507,7 @@
           <div>
             <div class="text-lg font-bold">🩺 ICU Services</div>
             <div id="serviceCount" class="text-sm text-slate-300 mt-1">0 services</div>
+            <div id="serviceFavCount" class="text-xs text-amber-200/90 mt-1">0 favorites</div>
           </div>
         </div>
 
@@ -514,12 +515,38 @@
           <table class="w-full text-sm" id="tblServices">
             <thead class="bg-white/5 text-slate-200 sticky top-0">
               <tr>
+                <th class="text-left p-2 no-print">⭐</th>
+                <th class="text-right p-2 no-print">Action</th>
                 <th class="text-left p-2">Service Code</th>
                 <th class="text-left p-2">Description</th>
                 <th class="text-right p-2">Price</th>
               </tr>
             </thead>
             <tbody id="servicesTbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card glass border border-white/10 p-4">
+        <div class="flex flex-wrap items-center justify-between gap-2 no-print">
+          <div>
+            <div class="text-lg font-bold">⭐ Favorite ICU Services</div>
+            <div class="text-sm text-slate-300 mt-1">Quick access to your favorite ICU service codes</div>
+          </div>
+        </div>
+
+        <div class="mt-3 overflow-auto border border-white/10 rounded-xl">
+          <table class="w-full text-sm" id="tblServiceFavorites">
+            <thead class="bg-white/5 text-slate-200">
+              <tr>
+                <th class="text-left p-2 no-print">⭐</th>
+                <th class="text-right p-2 no-print">Action</th>
+                <th class="text-left p-2">Service Code</th>
+                <th class="text-left p-2">Description</th>
+                <th class="text-right p-2">Price</th>
+              </tr>
+            </thead>
+            <tbody id="serviceFavTbody"></tbody>
           </table>
         </div>
       </div>
@@ -554,7 +581,7 @@
 
     const LS_KEY = "icu_encoding_local_stock_hybrid_v2";
     const LS_UI_KEY = LS_KEY + "_ui";
-    const state = { items: [], categories: [], clipboard: [], history: [], activeTab: "dashboard", activeCategory: "__ALL__", search: "", manageSearch: "", serviceSearch: "", touch: false};
+    const state = { items: [], categories: [], clipboard: [], history: [], serviceFavorites: [], activeTab: "dashboard", activeCategory: "__ALL__", search: "", manageSearch: "", serviceSearch: "", touch: false};
 
     let warnedSciCode=false; // warn once if Item Code is rounded in scientific notation
 
@@ -653,7 +680,7 @@
     function stickerFor(cat){ if (hasEmoji(cat)) return ""; return CATEGORY_STICKERS[cat] || "🏷️"; }
     function displayCat(cat){ const st=stickerFor(cat); return st ? `${st} ${cat}` : cat; }
 
-    function saveState(){ localStorage.setItem(LS_KEY, JSON.stringify({items:state.items,categories:state.categories,clipboard:state.clipboard,history:state.history})); }
+    function saveState(){ localStorage.setItem(LS_KEY, JSON.stringify({items:state.items,categories:state.categories,clipboard:state.clipboard,history:state.history,serviceFavorites:state.serviceFavorites})); }
 
     function saveUiState() {
       try { localStorage.setItem(LS_UI_KEY, JSON.stringify({ touch: !!state.touch })); } catch {}
@@ -676,7 +703,7 @@
       try{
         const raw=localStorage.getItem(LS_KEY); if(!raw) return false;
         const obj=JSON.parse(raw); if(!obj||!Array.isArray(obj.items)) return false;
-        state.items=obj.items; state.categories=Array.isArray(obj.categories)?obj.categories:[]; state.clipboard=Array.isArray(obj.clipboard)?obj.clipboard:[]; state.history=Array.isArray(obj.history)?obj.history:[];
+        state.items=obj.items; state.categories=Array.isArray(obj.categories)?obj.categories:[]; state.clipboard=Array.isArray(obj.clipboard)?obj.clipboard:[]; state.history=Array.isArray(obj.history)?obj.history:[]; state.serviceFavorites=Array.isArray(obj.serviceFavorites)?obj.serviceFavorites:[];
         normalizeCategories(); return true;
       }catch{ return false; }
     }
@@ -848,7 +875,7 @@
     function resetAll(){
       if(!confirm("Reset everything? This will clear stock, categories, favorites, and copy list.")) return;
       localStorage.removeItem(LS_KEY);
-      state.items=[]; state.categories=[]; state.clipboard=[]; state.history=[];
+      state.items=[]; state.categories=[]; state.clipboard=[]; state.history=[]; state.serviceFavorites=[];
       state.activeCategory="__ALL__"; state.search=""; state.manageSearch="";
       renderAll(); showEmptyIfNeeded();
     }
@@ -942,7 +969,7 @@
     async function restoreBackupJson(file){
       const text=await file.text(); const obj=JSON.parse(text);
       if(!obj||!Array.isArray(obj.items)) throw new Error("Invalid JSON backup.");
-      state.items=obj.items; state.categories=Array.isArray(obj.categories)?obj.categories:[]; state.clipboard=Array.isArray(obj.clipboard)?obj.clipboard:[]; state.history=Array.isArray(obj.history)?obj.history:[];
+      state.items=obj.items; state.categories=Array.isArray(obj.categories)?obj.categories:[]; state.clipboard=Array.isArray(obj.clipboard)?obj.clipboard:[]; state.history=Array.isArray(obj.history)?obj.history:[]; state.serviceFavorites=Array.isArray(obj.serviceFavorites)?obj.serviceFavorites:[];
       normalizeCategories(); saveState(); renderAll(); showEmptyIfNeeded();
     }
 
@@ -1341,38 +1368,93 @@
     }
 
 
-    function renderServices(){
-      const tbody=document.getElementById("servicesTbody");
-      const count=document.getElementById("serviceCount");
-      if(!tbody || !count) return;
-      const q=(state.serviceSearch||"").trim().toLowerCase();
-      const list=ICU_SERVICES_DATA.filter(row=>{
-        if(!q) return true;
-        const hay=((row.code||"")+" "+(row.description||"")).toLowerCase();
-        return hay.includes(q);
-      }).sort((a,b)=> String(a.description||"").localeCompare(String(b.description||"")));
-      count.textContent=`${list.length} services`;
-      tbody.innerHTML="";
-      for(const row of list){
+    function copyTextValue(value, okMsg){
+      const text=String(value||"").trim();
+      if(!text) return;
+      try{
+        if(navigator.clipboard && navigator.clipboard.writeText){
+          navigator.clipboard.writeText(text);
+        }else{
+          const ta=document.createElement("textarea");
+          ta.value=text;
+          ta.setAttribute("readonly","");
+          ta.style.position="fixed";
+          ta.style.left="-9999px";
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand("copy");
+          ta.remove();
+        }
+        flashUndo(okMsg || "Copied ✅");
+      }catch(e){
+        alert("Copy failed on this browser.");
+      }
+    }
+
+    function isServiceFav(code){
+      return state.serviceFavorites.includes(String(code||""));
+    }
+
+    function toggleServiceFav(code){
+      const key=String(code||"");
+      if(!key) return;
+      if(isServiceFav(key)) state.serviceFavorites=state.serviceFavorites.filter(x=>x!==key);
+      else state.serviceFavorites.push(key);
+      saveState(); renderAll();
+    }
+
+    function renderServiceRows(targetTbody, rows){
+      if(!targetTbody) return;
+      targetTbody.innerHTML="";
+      for(const row of rows){
         const tr=document.createElement("tr");
         tr.className="border-t border-white/5 hover:bg-white/5";
         const priceValue = row.price === "" || row.price == null ? "" : (typeof row.price === "number" ? row.price.toFixed(2) : row.price);
+        const fav = isServiceFav(row.code);
         tr.innerHTML=`
+          <td class="p-2 no-print"><button class="text-lg" title="Favorite ICU service">${fav?"⭐":"☆"}</button></td>
+          <td class="p-2 text-right no-print">
+            <button class="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 font-semibold text-xs">Copy Code</button>
+          </td>
           <td class="p-2 mono">${escapeHtml(row.code||"")}</td>
           <td class="p-2">${escapeHtml(row.description||"")}</td>
           <td class="p-2 text-right mono">${escapeHtml(priceValue)}</td>
         `;
-        tbody.appendChild(tr);
+        const buttons=tr.querySelectorAll("button");
+        buttons[0].onclick=()=>toggleServiceFav(row.code);
+        buttons[1].onclick=()=>copyTextValue(row.code, "Copied ✅ (Service Code)");
+        targetTbody.appendChild(tr);
       }
     }
 
+    function renderServices(){
+      const tbody=document.getElementById("servicesTbody");
+      const count=document.getElementById("serviceCount");
+      const favCount=document.getElementById("serviceFavCount");
+      const favTbody=document.getElementById("serviceFavTbody");
+      if(!tbody || !count || !favTbody) return;
+      const q=(state.serviceSearch||"").trim().toLowerCase();
+      const sorted=[...ICU_SERVICES_DATA].sort((a,b)=> String(a.description||"").localeCompare(String(b.description||"")));
+      const list=sorted.filter(row=>{
+        if(!q) return true;
+        const hay=((row.code||"")+" "+(row.description||"")).toLowerCase();
+        return hay.includes(q);
+      });
+      const favList=sorted.filter(row=>isServiceFav(row.code));
+      count.textContent=`${list.length} services`;
+      if(favCount) favCount.textContent=`${favList.length} favorites`;
+      renderServiceRows(tbody, list);
+      renderServiceRows(favTbody, favList);
+    }
+
     function renderAll(){
-      if(state.items.length===0) return;
-      if(state.activeTab==="dashboard") renderDashboard();
+      if(state.items.length>0){
+        if(state.activeTab==="dashboard") renderDashboard();
       if(state.activeTab==="manage") renderManage();
       if(state.activeTab==="zero") renderZeroStock();
-      if(state.activeTab==="favorites") renderFavorites();
-      if(state.activeTab==="clipboard") renderClipboard();
+        if(state.activeTab==="favorites") renderFavorites();
+        if(state.activeTab==="clipboard") renderClipboard();
+      }
       if(state.activeTab==="services") renderServices();
       document.getElementById("searchAll").value=state.search||"";
       document.getElementById("manageSearch").value=state.manageSearch||"";
