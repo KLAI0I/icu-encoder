@@ -148,6 +148,26 @@
     margin:10px auto 0;
   }
 
+
+  /* ICU services table polish */
+  .serviceCodeCell{ text-align:center; vertical-align:middle; }
+  .serviceCodePill{
+    display:inline-flex; align-items:center; justify-content:center;
+    min-width:110px; padding:.45rem .8rem; border-radius:999px;
+    background:rgba(99,102,241,.16); border:1px solid rgba(129,140,248,.35);
+    font-weight:800; letter-spacing:.04em;
+  }
+  .serviceActionCell, .serviceFavCell{ text-align:center; vertical-align:middle; }
+  .serviceActionBtn{
+    display:inline-flex; align-items:center; justify-content:center;
+    min-width:104px; padding:.55rem .9rem; border-radius:.9rem;
+    background:rgba(79,70,229,.95); font-weight:700;
+  }
+  .serviceActionBtn:hover{ background:rgba(99,102,241,.98); }
+  .serviceFavBtn{ display:inline-grid; place-items:center; width:42px; height:42px; border-radius:14px; }
+  .serviceDescCell{ line-height:1.45; }
+  .servicePriceCell{ text-align:right; vertical-align:middle; font-weight:700; }
+
 </style>
     
     
@@ -427,7 +447,7 @@
         <div class="flex flex-wrap items-center justify-between gap-2 no-print">
           <div>
             <div class="text-lg font-bold">⭐ Favorites</div>
-            <div class="text-sm text-slate-300 mt-1">Quick access to your favorite items</div>
+            <div class="text-sm text-slate-300 mt-1">Supplies and ICU services are separated below for quick access.</div>
           </div>
           <div class="flex gap-2 flex-wrap">
             <button id="btnExportFavExcel" class="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 font-semibold text-sm">⬇️ Export Excel</button>
@@ -435,7 +455,13 @@
             <button id="btnPrintFav" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 font-semibold text-sm">🖨️ Export PDF</button>
           </div>
         </div>
+      </div>
 
+      <div class="card glass border border-white/10 p-4">
+        <div>
+          <div class="text-lg font-bold">📦 Favorite Supplies</div>
+          <div id="favSuppliesCount" class="text-sm text-slate-300 mt-1">0 favorite supplies</div>
+        </div>
         <div class="mt-3 overflow-auto border border-white/10 rounded-xl">
           <table class="w-full text-sm" id="tblFav">
             <thead class="bg-white/5 text-slate-200">
@@ -447,9 +473,31 @@
                 <th class="text-left p-2">Item</th>
                 <th class="text-left p-2">Batch</th>
                 <th class="text-left p-2">Expiry</th>
+                <th class="text-left p-2">Category</th>
               </tr>
             </thead>
             <tbody id="favTbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card glass border border-white/10 p-4">
+        <div>
+          <div class="text-lg font-bold">🩺 Favorite ICU Services</div>
+          <div id="favServicesCount" class="text-sm text-slate-300 mt-1">0 favorite services</div>
+        </div>
+        <div class="mt-3 overflow-auto border border-white/10 rounded-xl">
+          <table class="w-full text-sm" id="tblFavServices">
+            <thead class="bg-white/5 text-slate-200">
+              <tr>
+                <th class="text-left p-2 no-print">⭐</th>
+                <th class="text-center p-2 no-print">Action</th>
+                <th class="text-center p-2">Service Code</th>
+                <th class="text-left p-2">Description</th>
+                <th class="text-right p-2">Price</th>
+              </tr>
+            </thead>
+            <tbody id="favServicesTbody"></tbody>
           </table>
         </div>
       </div>
@@ -516,8 +564,8 @@
             <thead class="bg-white/5 text-slate-200 sticky top-0">
               <tr>
                 <th class="text-left p-2 no-print">⭐</th>
-                <th class="text-right p-2 no-print">Action</th>
-                <th class="text-left p-2">Service Code</th>
+                <th class="text-center p-2 no-print">Action</th>
+                <th class="text-center p-2">Service Code</th>
                 <th class="text-left p-2">Description</th>
                 <th class="text-right p-2">Price</th>
               </tr>
@@ -527,29 +575,6 @@
         </div>
       </div>
 
-      <div class="card glass border border-white/10 p-4">
-        <div class="flex flex-wrap items-center justify-between gap-2 no-print">
-          <div>
-            <div class="text-lg font-bold">⭐ Favorite ICU Services</div>
-            <div class="text-sm text-slate-300 mt-1">Quick access to your favorite ICU service codes</div>
-          </div>
-        </div>
-
-        <div class="mt-3 overflow-auto border border-white/10 rounded-xl">
-          <table class="w-full text-sm" id="tblServiceFavorites">
-            <thead class="bg-white/5 text-slate-200">
-              <tr>
-                <th class="text-left p-2 no-print">⭐</th>
-                <th class="text-right p-2 no-print">Action</th>
-                <th class="text-left p-2">Service Code</th>
-                <th class="text-left p-2">Description</th>
-                <th class="text-right p-2">Price</th>
-              </tr>
-            </thead>
-            <tbody id="serviceFavTbody"></tbody>
-          </table>
-        </div>
-      </div>
     </section>
 
     <!-- Print-only helper -->
@@ -1321,27 +1346,41 @@
 
     function renderFavorites(){
       const tbody=document.getElementById("favTbody");
-      tbody.innerHTML="";
+      const favServicesTbody=document.getElementById("favServicesTbody");
+      const favSuppliesCount=document.getElementById("favSuppliesCount");
+      const favServicesCount=document.getElementById("favServicesCount");
+      if(tbody) tbody.innerHTML="";
+      if(favServicesTbody) favServicesTbody.innerHTML="";
+
       const favs=state.items.filter(it=>it.fav).sort((a,b)=>(a.category||"").localeCompare(b.category||"") || (a.name||"").localeCompare(b.name||""));
+      if(favSuppliesCount) favSuppliesCount.textContent=`${favs.length} favorite supplies`;
       for(const it of favs){
         const tr=document.createElement("tr");
         tr.className="border-t border-white/5 hover:bg-white/5";
         tr.innerHTML=`
-          <td class="p-2 mono">${escapeHtml(asNumericCode(it.code))}</td>
-          <td class="p-2 mono">${escapeHtml(it.batch||"")}</td>
-          <td class="p-2 mono">${escapeHtml(it.expiry||"")}</td>
-          <td class="p-2">${escapeHtml(it.name||"")}</td>
-          <td class="p-2 text-slate-300">${escapeHtml(displayCat(it.category))}</td>
-          <td class="p-2 text-right font-bold">${it.qty}</td>
+          <td class="p-2 no-print"><button class="text-lg" title="Favorite">⭐</button></td>
           <td class="p-2 text-right no-print">
             <button class="px-3 py-1.5 rounded-xl font-semibold ${it.qty>0?"bg-indigo-600 hover:bg-indigo-500":"bg-slate-700 cursor-not-allowed"}">Copy</button>
           </td>
+          <td class="p-2 text-right font-bold">${it.qty}</td>
+          <td class="p-2 mono">${escapeHtml(asNumericCode(it.code))}</td>
+          <td class="p-2">${escapeHtml(it.name||"")}</td>
+          <td class="p-2 mono">${escapeHtml(it.batch||"")}</td>
+          <td class="p-2 mono">${escapeHtml(it.expiry||"")}</td>
+          <td class="p-2 text-slate-300">${escapeHtml(displayCat(it.category))}</td>
         `;
-        const btn=tr.querySelector("button");
-        btn.disabled=it.qty<=0;
-        btn.onclick=()=>doCopyOne(it.id);
-        tbody.appendChild(tr);
+        const buttons=tr.querySelectorAll("button");
+        buttons[0].onclick=()=>toggleFav(it.id);
+        buttons[1].disabled=it.qty<=0;
+        buttons[1].onclick=()=>doCopyOne(it.id);
+        if(tbody) tbody.appendChild(tr);
       }
+
+      const favServices=[...ICU_SERVICES_DATA]
+        .filter(row=>isServiceFav(row.code))
+        .sort((a,b)=> String(a.description||"").localeCompare(String(b.description||"")));
+      if(favServicesCount) favServicesCount.textContent=`${favServices.length} favorite services`;
+      renderServiceRows(favServicesTbody, favServices);
     }
 
     function renderClipboard(){
@@ -1412,13 +1451,13 @@
         const priceValue = row.price === "" || row.price == null ? "" : (typeof row.price === "number" ? row.price.toFixed(2) : row.price);
         const fav = isServiceFav(row.code);
         tr.innerHTML=`
-          <td class="p-2 no-print"><button class="text-lg" title="Favorite ICU service">${fav?"⭐":"☆"}</button></td>
-          <td class="p-2 text-right no-print">
-            <button class="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 font-semibold text-xs">Copy Code</button>
+          <td class="p-2 no-print serviceFavCell"><button class="serviceFavBtn text-xl" title="Favorite ICU service">${fav?"⭐":"☆"}</button></td>
+          <td class="p-2 no-print serviceActionCell">
+            <button class="serviceActionBtn text-sm">Copy Code</button>
           </td>
-          <td class="p-2 mono">${escapeHtml(row.code||"")}</td>
-          <td class="p-2">${escapeHtml(row.description||"")}</td>
-          <td class="p-2 text-right mono">${escapeHtml(priceValue)}</td>
+          <td class="p-2 mono serviceCodeCell"><span class="serviceCodePill">${escapeHtml(row.code||"")}</span></td>
+          <td class="p-2 serviceDescCell">${escapeHtml(row.description||"")}</td>
+          <td class="p-2 mono servicePriceCell">${escapeHtml(priceValue)}</td>
         `;
         const buttons=tr.querySelectorAll("button");
         buttons[0].onclick=()=>toggleServiceFav(row.code);
@@ -1431,8 +1470,7 @@
       const tbody=document.getElementById("servicesTbody");
       const count=document.getElementById("serviceCount");
       const favCount=document.getElementById("serviceFavCount");
-      const favTbody=document.getElementById("serviceFavTbody");
-      if(!tbody || !count || !favTbody) return;
+      if(!tbody || !count) return;
       const q=(state.serviceSearch||"").trim().toLowerCase();
       const sorted=[...ICU_SERVICES_DATA].sort((a,b)=> String(a.description||"").localeCompare(String(b.description||"")));
       const list=sorted.filter(row=>{
@@ -1444,17 +1482,16 @@
       count.textContent=`${list.length} services`;
       if(favCount) favCount.textContent=`${favList.length} favorites`;
       renderServiceRows(tbody, list);
-      renderServiceRows(favTbody, favList);
     }
 
     function renderAll(){
       if(state.items.length>0){
         if(state.activeTab==="dashboard") renderDashboard();
-      if(state.activeTab==="manage") renderManage();
-      if(state.activeTab==="zero") renderZeroStock();
-        if(state.activeTab==="favorites") renderFavorites();
+        if(state.activeTab==="manage") renderManage();
+        if(state.activeTab==="zero") renderZeroStock();
         if(state.activeTab==="clipboard") renderClipboard();
       }
+      if(state.activeTab==="favorites") renderFavorites();
       if(state.activeTab==="services") renderServices();
       document.getElementById("searchAll").value=state.search||"";
       document.getElementById("manageSearch").value=state.manageSearch||"";
@@ -1555,7 +1592,7 @@
       document.getElementById("btnPrintDashboard").onclick=()=>printTable("ICU Encoding Dashboard - Items","Dashboard view","tblDashboard");
       document.getElementById("btnPrintManage").onclick=()=>printTable("ICU Encoding Dashboard - Manage Items","Reorganize view","tblManage");
       document.getElementById("btnPrintZero").onclick=()=>exportZeroPdf();
-      document.getElementById("btnPrintFav").onclick=()=>printTable("ICU Encoding Dashboard - Favorites","Favorites list","tblFav");
+      document.getElementById("btnPrintFav").onclick=()=>printFavoritesPage();
       document.getElementById("btnPrintClipboard").onclick=()=>printTable("ICU Encoding Dashboard - Copy List","Copy list","tblClipboard");
     }
 
